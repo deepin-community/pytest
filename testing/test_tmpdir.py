@@ -1,16 +1,18 @@
+import dataclasses
 import os
 import stat
 import sys
+import warnings
 from pathlib import Path
 from typing import Callable
 from typing import cast
 from typing import List
-
-import attr
+from typing import Union
 
 import pytest
 from _pytest import pathlib
 from _pytest.config import Config
+from _pytest.monkeypatch import MonkeyPatch
 from _pytest.pathlib import cleanup_numbered_dir
 from _pytest.pathlib import create_cleanup_lock
 from _pytest.pathlib import make_numbered_dir
@@ -20,19 +22,18 @@ from _pytest.pathlib import register_cleanup_lock_removal
 from _pytest.pathlib import rm_rf
 from _pytest.pytester import Pytester
 from _pytest.tmpdir import get_user
-from _pytest.tmpdir import TempdirFactory
 from _pytest.tmpdir import TempPathFactory
 
 
-def test_tmpdir_fixture(pytester: Pytester) -> None:
-    p = pytester.copy_example("tmpdir/tmpdir_fixture.py")
+def test_tmp_path_fixture(pytester: Pytester) -> None:
+    p = pytester.copy_example("tmpdir/tmp_path_fixture.py")
     results = pytester.runpytest(p)
     results.stdout.fnmatch_lines(["*1 passed*"])
 
 
-@attr.s
+@dataclasses.dataclass
 class FakeConfig:
-    basetemp = attr.ib()
+    basetemp: Union[str, Path]
 
     @property
     def trace(self):
@@ -41,26 +42,34 @@ class FakeConfig:
     def get(self, key):
         return lambda *k: None
 
+    def getini(self, name):
+        if name == "tmp_path_retention_count":
+            return 3
+        elif name == "tmp_path_retention_policy":
+            return "all"
+        else:
+            assert False
+
     @property
     def option(self):
         return self
 
 
-class TestTempdirHandler:
-    def test_mktemp(self, tmp_path):
+class TestTmpPathHandler:
+    def test_mktemp(self, tmp_path: Path) -> None:
         config = cast(Config, FakeConfig(tmp_path))
-        t = TempdirFactory(
-            TempPathFactory.from_config(config, _ispytest=True), _ispytest=True
-        )
+        t = TempPathFactory.from_config(config, _ispytest=True)
         tmp = t.mktemp("world")
-        assert tmp.relto(t.getbasetemp()) == "world0"
+        assert str(tmp.relative_to(t.getbasetemp())) == "world0"
         tmp = t.mktemp("this")
-        assert tmp.relto(t.getbasetemp()).startswith("this")
+        assert str(tmp.relative_to(t.getbasetemp())).startswith("this")
         tmp2 = t.mktemp("this")
-        assert tmp2.relto(t.getbasetemp()).startswith("this")
+        assert str(tmp2.relative_to(t.getbasetemp())).startswith("this")
         assert tmp2 != tmp
 
-    def test_tmppath_relative_basetemp_absolute(self, tmp_path, monkeypatch):
+    def test_tmppath_relative_basetemp_absolute(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
         """#4425"""
         monkeypatch.chdir(tmp_path)
         config = cast(Config, FakeConfig("hello"))
@@ -68,12 +77,12 @@ class TestTempdirHandler:
         assert t.getbasetemp().resolve() == (tmp_path / "hello").resolve()
 
 
-class TestConfigTmpdir:
+class TestConfigTmpPath:
     def test_getbasetemp_custom_removes_old(self, pytester: Pytester) -> None:
         mytemp = pytester.path.joinpath("xyz")
         p = pytester.makepyfile(
             """
-            def test_1(tmpdir):
+            def test_1(tmp_path):
                 pass
         """
         )
@@ -84,6 +93,136 @@ class TestConfigTmpdir:
         pytester.runpytest(p, "--basetemp=%s" % mytemp)
         assert mytemp.exists()
         assert not mytemp.joinpath("hello").exists()
+
+    def test_policy_failed_removes_only_passed_dir(self, pytester: Pytester) -> None:
+        p = pytester.makepyfile(
+            """
+            def test_1(tmp_path):
+                assert 0 == 0
+            def test_2(tmp_path):
+                assert 0 == 1
+        """
+        )
+        pytester.makepyprojecttoml(
+            """
+            [tool.pytest.ini_options]
+            tmp_path_retention_policy = "failed"
+        """
+        )
+
+        pytester.inline_run(p)
+        root = pytester._test_tmproot
+
+        for child in root.iterdir():
+            base_dir = list(
+                filter(lambda x: x.is_dir() and not x.is_symlink(), child.iterdir())
+            )
+            assert len(base_dir) == 1
+            test_dir = list(
+                filter(
+                    lambda x: x.is_dir() and not x.is_symlink(), base_dir[0].iterdir()
+                )
+            )
+            # Check only the failed one remains
+            assert len(test_dir) == 1
+            assert test_dir[0].name == "test_20"
+
+    def test_policy_failed_removes_basedir_when_all_passed(
+        self, pytester: Pytester
+    ) -> None:
+        p = pytester.makepyfile(
+            """
+            def test_1(tmp_path):
+                assert 0 == 0
+        """
+        )
+        pytester.makepyprojecttoml(
+            """
+            [tool.pytest.ini_options]
+            tmp_path_retention_policy = "failed"
+        """
+        )
+
+        pytester.inline_run(p)
+        root = pytester._test_tmproot
+        for child in root.iterdir():
+            # This symlink will be deleted by cleanup_numbered_dir **after**
+            # the test finishes because it's triggered by atexit.
+            # So it has to be ignored here.
+            base_dir = filter(lambda x: not x.is_symlink(), child.iterdir())
+            # Check the base dir itself is gone
+            assert len(list(base_dir)) == 0
+
+    # issue #10502
+    def test_policy_failed_removes_dir_when_skipped_from_fixture(
+        self, pytester: Pytester
+    ) -> None:
+        p = pytester.makepyfile(
+            """
+            import pytest
+
+            @pytest.fixture
+            def fixt(tmp_path):
+                pytest.skip()
+
+            def test_fixt(fixt):
+                pass
+        """
+        )
+        pytester.makepyprojecttoml(
+            """
+            [tool.pytest.ini_options]
+            tmp_path_retention_policy = "failed"
+        """
+        )
+
+        pytester.inline_run(p)
+
+        # Check if the whole directory is removed
+        root = pytester._test_tmproot
+        for child in root.iterdir():
+            base_dir = list(
+                filter(lambda x: x.is_dir() and not x.is_symlink(), child.iterdir())
+            )
+            assert len(base_dir) == 0
+
+    # issue #10502
+    def test_policy_all_keeps_dir_when_skipped_from_fixture(
+        self, pytester: Pytester
+    ) -> None:
+        p = pytester.makepyfile(
+            """
+            import pytest
+
+            @pytest.fixture
+            def fixt(tmp_path):
+                pytest.skip()
+
+            def test_fixt(fixt):
+                pass
+        """
+        )
+        pytester.makepyprojecttoml(
+            """
+            [tool.pytest.ini_options]
+            tmp_path_retention_policy = "all"
+        """
+        )
+        pytester.inline_run(p)
+
+        # Check if the whole directory is kept
+        root = pytester._test_tmproot
+        for child in root.iterdir():
+            base_dir = list(
+                filter(lambda x: x.is_dir() and not x.is_symlink(), child.iterdir())
+            )
+            assert len(base_dir) == 1
+            test_dir = list(
+                filter(
+                    lambda x: x.is_dir() and not x.is_symlink(), base_dir[0].iterdir()
+                )
+            )
+            assert len(test_dir) == 1
 
 
 testdata = [
@@ -103,8 +242,8 @@ def test_mktemp(pytester: Pytester, basename: str, is_ok: bool) -> None:
     mytemp = pytester.mkdir("mytemp")
     p = pytester.makepyfile(
         """
-        def test_abs_path(tmpdir_factory):
-            tmpdir_factory.mktemp('{}', numbered=False)
+        def test_abs_path(tmp_path_factory):
+            tmp_path_factory.mktemp('{}', numbered=False)
         """.format(
             basename
         )
@@ -119,29 +258,13 @@ def test_mktemp(pytester: Pytester, basename: str, is_ok: bool) -> None:
         result.stdout.fnmatch_lines("*ValueError*")
 
 
-def test_tmpdir_always_is_realpath(pytester: Pytester) -> None:
-    # the reason why tmpdir should be a realpath is that
+def test_tmp_path_always_is_realpath(pytester: Pytester, monkeypatch) -> None:
+    # the reason why tmp_path should be a realpath is that
     # when you cd to it and do "os.getcwd()" you will anyway
     # get the realpath.  Using the symlinked path can thus
     # easily result in path-inequality
     # XXX if that proves to be a problem, consider using
     # os.environ["PWD"]
-    realtemp = pytester.mkdir("myrealtemp")
-    linktemp = pytester.path.joinpath("symlinktemp")
-    attempt_symlink_to(linktemp, str(realtemp))
-    p = pytester.makepyfile(
-        """
-        def test_1(tmpdir):
-            import os
-            assert os.path.realpath(str(tmpdir)) == str(tmpdir)
-    """
-    )
-    result = pytester.runpytest("-s", p, "--basetemp=%s/bt" % linktemp)
-    assert not result.ret
-
-
-def test_tmp_path_always_is_realpath(pytester: Pytester, monkeypatch) -> None:
-    # for reasoning see: test_tmpdir_always_is_realpath test-case
     realtemp = pytester.mkdir("myrealtemp")
     linktemp = pytester.path.joinpath("symlinktemp")
     attempt_symlink_to(linktemp, str(realtemp))
@@ -156,44 +279,44 @@ def test_tmp_path_always_is_realpath(pytester: Pytester, monkeypatch) -> None:
     reprec.assertoutcome(passed=1)
 
 
-def test_tmpdir_too_long_on_parametrization(pytester: Pytester) -> None:
+def test_tmp_path_too_long_on_parametrization(pytester: Pytester) -> None:
     pytester.makepyfile(
         """
         import pytest
         @pytest.mark.parametrize("arg", ["1"*1000])
-        def test_some(arg, tmpdir):
-            tmpdir.ensure("hello")
+        def test_some(arg, tmp_path):
+            tmp_path.joinpath("hello").touch()
     """
     )
     reprec = pytester.inline_run()
     reprec.assertoutcome(passed=1)
 
 
-def test_tmpdir_factory(pytester: Pytester) -> None:
+def test_tmp_path_factory(pytester: Pytester) -> None:
     pytester.makepyfile(
         """
         import pytest
         @pytest.fixture(scope='session')
-        def session_dir(tmpdir_factory):
-            return tmpdir_factory.mktemp('data', numbered=False)
+        def session_dir(tmp_path_factory):
+            return tmp_path_factory.mktemp('data', numbered=False)
         def test_some(session_dir):
-            assert session_dir.isdir()
+            assert session_dir.is_dir()
     """
     )
     reprec = pytester.inline_run()
     reprec.assertoutcome(passed=1)
 
 
-def test_tmpdir_fallback_tox_env(pytester: Pytester, monkeypatch) -> None:
-    """Test that tmpdir works even if environment variables required by getpass
+def test_tmp_path_fallback_tox_env(pytester: Pytester, monkeypatch) -> None:
+    """Test that tmp_path works even if environment variables required by getpass
     module are missing (#1010).
     """
     monkeypatch.delenv("USER", raising=False)
     monkeypatch.delenv("USERNAME", raising=False)
     pytester.makepyfile(
         """
-        def test_some(tmpdir):
-            assert tmpdir.isdir()
+        def test_some(tmp_path):
+            assert tmp_path.is_dir()
     """
     )
     reprec = pytester.inline_run()
@@ -210,15 +333,15 @@ def break_getuser(monkeypatch):
 
 @pytest.mark.usefixtures("break_getuser")
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="no os.getuid on windows")
-def test_tmpdir_fallback_uid_not_found(pytester: Pytester) -> None:
-    """Test that tmpdir works even if the current process's user id does not
+def test_tmp_path_fallback_uid_not_found(pytester: Pytester) -> None:
+    """Test that tmp_path works even if the current process's user id does not
     correspond to a valid user.
     """
 
     pytester.makepyfile(
         """
-        def test_some(tmpdir):
-            assert tmpdir.isdir()
+        def test_some(tmp_path):
+            assert tmp_path.is_dir()
     """
     )
     reprec = pytester.inline_run()
@@ -292,12 +415,12 @@ class TestNumberedDir:
 
         assert not lock.exists()
 
-    def _do_cleanup(self, tmp_path: Path) -> None:
+    def _do_cleanup(self, tmp_path: Path, keep: int = 2) -> None:
         self.test_make(tmp_path)
         cleanup_numbered_dir(
             root=tmp_path,
             prefix=self.PREFIX,
-            keep=2,
+            keep=keep,
             consider_lock_dead_if_created_before=0,
         )
 
@@ -305,6 +428,11 @@ class TestNumberedDir:
         self._do_cleanup(tmp_path)
         a, b = (x for x in tmp_path.iterdir() if not x.is_symlink())
         print(a, b)
+
+    def test_cleanup_keep_0(self, tmp_path: Path):
+        self._do_cleanup(tmp_path, 0)
+        dir_num = len(list(tmp_path.iterdir()))
+        assert dir_num == 0
 
     def test_cleanup_locked(self, tmp_path):
         p = make_numbered_dir(root=tmp_path, prefix=self.PREFIX)
@@ -384,31 +512,33 @@ class TestRmRf:
 
         # unknown exception
         with pytest.warns(pytest.PytestWarning):
-            exc_info1 = (None, RuntimeError(), None)
+            exc_info1 = (RuntimeError, RuntimeError(), None)
             on_rm_rf_error(os.unlink, str(fn), exc_info1, start_path=tmp_path)
             assert fn.is_file()
 
         # we ignore FileNotFoundError
-        exc_info2 = (None, FileNotFoundError(), None)
+        exc_info2 = (FileNotFoundError, FileNotFoundError(), None)
         assert not on_rm_rf_error(None, str(fn), exc_info2, start_path=tmp_path)
 
         # unknown function
         with pytest.warns(
             pytest.PytestWarning,
-            match=r"^\(rm_rf\) unknown function None when removing .*foo.txt:\nNone: ",
+            match=r"^\(rm_rf\) unknown function None when removing .*foo.txt:\n<class 'PermissionError'>: ",
         ):
-            exc_info3 = (None, PermissionError(), None)
+            exc_info3 = (PermissionError, PermissionError(), None)
             on_rm_rf_error(None, str(fn), exc_info3, start_path=tmp_path)
             assert fn.is_file()
 
         # ignored function
-        with pytest.warns(None) as warninfo:
-            exc_info4 = (None, PermissionError(), None)
-            on_rm_rf_error(os.open, str(fn), exc_info4, start_path=tmp_path)
-            assert fn.is_file()
-        assert not [x.message for x in warninfo]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with pytest.warns(None) as warninfo:  # type: ignore[call-overload]
+                exc_info4 = PermissionError()
+                on_rm_rf_error(os.open, str(fn), exc_info4, start_path=tmp_path)
+                assert fn.is_file()
+            assert not [x.message for x in warninfo]
 
-        exc_info5 = (None, PermissionError(), None)
+        exc_info5 = PermissionError()
         on_rm_rf_error(os.unlink, str(fn), exc_info5, start_path=tmp_path)
         assert not fn.is_file()
 
@@ -422,10 +552,6 @@ def attempt_symlink_to(path, to_path):
         pytest.skip("could not create symbolic link")
 
 
-def test_tmpdir_equals_tmp_path(tmpdir, tmp_path):
-    assert Path(tmpdir) == tmp_path
-
-
 def test_basetemp_with_read_only_files(pytester: Pytester) -> None:
     """Integration test for #5524"""
     pytester.makepyfile(
@@ -435,7 +561,7 @@ def test_basetemp_with_read_only_files(pytester: Pytester) -> None:
 
         def test(tmp_path):
             fn = tmp_path / 'foo.txt'
-            fn.write_text('hello')
+            fn.write_text('hello', encoding='utf-8')
             mode = os.stat(str(fn)).st_mode
             os.chmod(str(fn), mode & ~stat.S_IREAD)
     """
@@ -447,14 +573,25 @@ def test_basetemp_with_read_only_files(pytester: Pytester) -> None:
     assert result.ret == 0
 
 
+def test_tmp_path_factory_handles_invalid_dir_characters(
+    tmp_path_factory: TempPathFactory, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.setattr("getpass.getuser", lambda: "os/<:*?;>agnostic")
+    # _basetemp / _given_basetemp are cached / set in parallel runs, patch them
+    monkeypatch.setattr(tmp_path_factory, "_basetemp", None)
+    monkeypatch.setattr(tmp_path_factory, "_given_basetemp", None)
+    p = tmp_path_factory.getbasetemp()
+    assert "pytest-of-unknown" in str(p)
+
+
 @pytest.mark.skipif(not hasattr(os, "getuid"), reason="checks unix permissions")
 def test_tmp_path_factory_create_directory_with_safe_permissions(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
     """Verify that pytest creates directories under /tmp with private permissions."""
     # Use the test's tmp_path as the system temproot (/tmp).
     monkeypatch.setenv("PYTEST_DEBUG_TEMPROOT", str(tmp_path))
-    tmp_factory = TempPathFactory(None, lambda *args: None, _ispytest=True)
+    tmp_factory = TempPathFactory(None, 3, "all", lambda *args: None, _ispytest=True)
     basetemp = tmp_factory.getbasetemp()
 
     # No world-readable permissions.
@@ -465,7 +602,7 @@ def test_tmp_path_factory_create_directory_with_safe_permissions(
 
 @pytest.mark.skipif(not hasattr(os, "getuid"), reason="checks unix permissions")
 def test_tmp_path_factory_fixes_up_world_readable_permissions(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
     """Verify that if a /tmp/pytest-of-foo directory already exists with
     world-readable permissions, it is fixed.
@@ -474,14 +611,14 @@ def test_tmp_path_factory_fixes_up_world_readable_permissions(
     """
     # Use the test's tmp_path as the system temproot (/tmp).
     monkeypatch.setenv("PYTEST_DEBUG_TEMPROOT", str(tmp_path))
-    tmp_factory = TempPathFactory(None, lambda *args: None, _ispytest=True)
+    tmp_factory = TempPathFactory(None, 3, "all", lambda *args: None, _ispytest=True)
     basetemp = tmp_factory.getbasetemp()
 
     # Before - simulate bad perms.
     os.chmod(basetemp.parent, 0o777)
     assert (basetemp.parent.stat().st_mode & 0o077) != 0
 
-    tmp_factory = TempPathFactory(None, lambda *args: None, _ispytest=True)
+    tmp_factory = TempPathFactory(None, 3, "all", lambda *args: None, _ispytest=True)
     basetemp = tmp_factory.getbasetemp()
 
     # After - fixed.

@@ -12,7 +12,6 @@ from typing import List
 from typing import Tuple
 
 import pluggy
-import py
 
 import _pytest.config
 import _pytest.terminal
@@ -133,7 +132,7 @@ class TestTerminal:
         item.config.pluginmanager.register(tr)
         location = item.reportinfo()
         tr.config.hook.pytest_runtest_logstart(
-            nodeid=item.nodeid, location=location, fspath=str(item.fspath)
+            nodeid=item.nodeid, location=location, fspath=str(item.path)
         )
         linecomp.assert_contains_lines(["*test_show_runtest_logstart.py*"])
 
@@ -245,7 +244,8 @@ class TestTerminal:
                     def test_method(self):
                         pass
                 """
-            )
+            ),
+            encoding="utf-8",
         )
         result = pytester.runpytest("-vv")
         assert result.ret == 0
@@ -386,21 +386,57 @@ class TestTerminal:
 
             def test_10():
                 pytest.xfail("It's 🕙 o'clock")
+
+            @pytest.mark.skip(
+                reason="1 cannot do foobar because baz is missing due to I don't know what"
+            )
+            def test_long_skip():
+                pass
+
+            @pytest.mark.xfail(
+                reason="2 cannot do foobar because baz is missing due to I don't know what"
+            )
+            def test_long_xfail():
+                print(1 / 0)
         """
         )
+
+        common_output = [
+            "test_verbose_skip_reason.py::test_1 SKIPPED (123) *",
+            "test_verbose_skip_reason.py::test_2 XPASS (456) *",
+            "test_verbose_skip_reason.py::test_3 XFAIL (789) *",
+            "test_verbose_skip_reason.py::test_4 XFAIL  *",
+            "test_verbose_skip_reason.py::test_5 SKIPPED (unconditional skip) *",
+            "test_verbose_skip_reason.py::test_6 XPASS  *",
+            "test_verbose_skip_reason.py::test_7 SKIPPED  *",
+            "test_verbose_skip_reason.py::test_8 SKIPPED (888 is great) *",
+            "test_verbose_skip_reason.py::test_9 XFAIL  *",
+            "test_verbose_skip_reason.py::test_10 XFAIL (It's 🕙 o'clock) *",
+        ]
+
         result = pytester.runpytest("-v")
         result.stdout.fnmatch_lines(
-            [
-                "test_verbose_skip_reason.py::test_1 SKIPPED (123) *",
-                "test_verbose_skip_reason.py::test_2 XPASS (456) *",
-                "test_verbose_skip_reason.py::test_3 XFAIL (789) *",
-                "test_verbose_skip_reason.py::test_4 XFAIL  *",
-                "test_verbose_skip_reason.py::test_5 SKIPPED (unconditional skip) *",
-                "test_verbose_skip_reason.py::test_6 XPASS  *",
-                "test_verbose_skip_reason.py::test_7 SKIPPED  *",
-                "test_verbose_skip_reason.py::test_8 SKIPPED (888 is great) *",
-                "test_verbose_skip_reason.py::test_9 XFAIL  *",
-                "test_verbose_skip_reason.py::test_10 XFAIL (It's 🕙 o'clock) *",
+            common_output
+            + [
+                "test_verbose_skip_reason.py::test_long_skip SKIPPED (1 cannot *...) *",
+                "test_verbose_skip_reason.py::test_long_xfail XFAIL (2 cannot *...) *",
+            ]
+        )
+
+        result = pytester.runpytest("-vv")
+        result.stdout.fnmatch_lines(
+            common_output
+            + [
+                (
+                    "test_verbose_skip_reason.py::test_long_skip SKIPPED"
+                    " (1 cannot do foobar"
+                ),
+                "because baz is missing due to I don't know what) *",
+                (
+                    "test_verbose_skip_reason.py::test_long_xfail XFAIL"
+                    " (2 cannot do foobar"
+                ),
+                "because baz is missing due to I don't know what) *",
             ]
         )
 
@@ -683,7 +719,7 @@ class TestTerminalFunctional:
                     pass
            """
         )
-        result = pytester.runpytest("-k", "test_two:", testpath)
+        result = pytester.runpytest("-k", "test_t", testpath)
         result.stdout.fnmatch_lines(
             ["collected 3 items / 1 deselected / 2 selected", "*test_deselected.py ..*"]
         )
@@ -750,6 +786,33 @@ class TestTerminalFunctional:
         result.stdout.no_fnmatch_line("*= 1 deselected =*")
         assert result.ret == 0
 
+    def test_selected_count_with_error(self, pytester: Pytester) -> None:
+        pytester.makepyfile(
+            test_selected_count_3="""
+                def test_one():
+                    pass
+                def test_two():
+                    pass
+                def test_three():
+                    pass
+            """,
+            test_selected_count_error="""
+                5/0
+                def test_foo():
+                    pass
+                def test_bar():
+                    pass
+            """,
+        )
+        result = pytester.runpytest("-k", "test_t")
+        result.stdout.fnmatch_lines(
+            [
+                "collected 3 items / 1 error / 1 deselected / 2 selected",
+                "* ERROR collecting test_selected_count_error.py *",
+            ]
+        )
+        assert result.ret == ExitCode.INTERRUPTED
+
     def test_no_skip_summary_if_failure(self, pytester: Pytester) -> None:
         pytester.makepyfile(
             """
@@ -800,12 +863,11 @@ class TestTerminalFunctional:
         result.stdout.fnmatch_lines(
             [
                 "*===== test session starts ====*",
-                "platform %s -- Python %s*pytest-%s*py-%s*pluggy-%s"
+                "platform %s -- Python %s*pytest-%s**pluggy-%s"
                 % (
                     sys.platform,
                     verinfo,
                     pytest.__version__,
-                    py.__version__,
                     pluggy.__version__,
                 ),
                 "*test_header_trailer_info.py .*",
@@ -828,12 +890,11 @@ class TestTerminalFunctional:
         result = pytester.runpytest("--no-header")
         verinfo = ".".join(map(str, sys.version_info[:3]))
         result.stdout.no_fnmatch_line(
-            "platform %s -- Python %s*pytest-%s*py-%s*pluggy-%s"
+            "platform %s -- Python %s*pytest-%s**pluggy-%s"
             % (
                 sys.platform,
                 verinfo,
                 pytest.__version__,
-                py.__version__,
                 pluggy.__version__,
             )
         )
@@ -851,7 +912,7 @@ class TestTerminalFunctional:
         # with configfile
         pytester.makeini("""[pytest]""")
         result = pytester.runpytest()
-        result.stdout.fnmatch_lines(["rootdir: *test_header0, configfile: tox.ini"])
+        result.stdout.fnmatch_lines(["rootdir: *test_header0", "configfile: tox.ini"])
 
         # with testpaths option, and not passing anything in the command-line
         pytester.makeini(
@@ -862,12 +923,12 @@ class TestTerminalFunctional:
         )
         result = pytester.runpytest()
         result.stdout.fnmatch_lines(
-            ["rootdir: *test_header0, configfile: tox.ini, testpaths: tests, gui"]
+            ["rootdir: *test_header0", "configfile: tox.ini", "testpaths: tests, gui"]
         )
 
         # with testpaths option, passing directory in command-line: do not show testpaths then
         result = pytester.runpytest("tests")
-        result.stdout.fnmatch_lines(["rootdir: *test_header0, configfile: tox.ini"])
+        result.stdout.fnmatch_lines(["rootdir: *test_header0", "configfile: tox.ini"])
 
     def test_header_absolute_testpath(
         self, pytester: Pytester, monkeypatch: MonkeyPatch
@@ -886,9 +947,9 @@ class TestTerminalFunctional:
         result = pytester.runpytest()
         result.stdout.fnmatch_lines(
             [
-                "rootdir: *absolute_testpath0, configfile: pyproject.toml, testpaths: {}".format(
-                    tests
-                )
+                "rootdir: *absolute_testpath0",
+                "configfile: pyproject.toml",
+                f"testpaths: {tests}",
             ]
         )
 
@@ -939,6 +1000,22 @@ class TestTerminalFunctional:
                 "y* = 'xxxxxx*",
             ]
         )
+
+    def test_noshowlocals_addopts_override(self, pytester: Pytester) -> None:
+        pytester.makeini("[pytest]\naddopts=--showlocals")
+        p1 = pytester.makepyfile(
+            """
+            def test_noshowlocals():
+                x = 3
+                y = "x" * 5000
+                assert 0
+        """
+        )
+
+        # Override global --showlocals for py.test via arg
+        result = pytester.runpytest(p1, "--no-showlocals")
+        result.stdout.no_fnmatch_line("x* = 3")
+        result.stdout.no_fnmatch_line("y* = 'xxxxxx*")
 
     def test_showlocals_short(self, pytester: Pytester) -> None:
         p1 = pytester.makepyfile(
@@ -1036,8 +1113,8 @@ class TestTerminalFunctional:
     def test_report_collectionfinish_hook(self, pytester: Pytester, params) -> None:
         pytester.makeconftest(
             """
-            def pytest_report_collectionfinish(config, startdir, items):
-                return ['hello from hook: {0} items'.format(len(items))]
+            def pytest_report_collectionfinish(config, start_path, items):
+                return [f'hello from hook: {len(items)} items']
         """
         )
         pytester.makepyfile(
@@ -1081,7 +1158,21 @@ class TestTerminalFunctional:
         assert result.stdout.lines.count(expected) == 1
 
 
-def test_fail_extra_reporting(pytester: Pytester, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("use_ci", "expected_message"),
+    (
+        (True, f"- AssertionError: {'this_failed'*100}"),
+        (False, "- AssertionError: this_failedt..."),
+    ),
+    ids=("on CI", "not on CI"),
+)
+def test_fail_extra_reporting(
+    pytester: Pytester, monkeypatch, use_ci: bool, expected_message: str
+) -> None:
+    if use_ci:
+        monkeypatch.setenv("CI", "true")
+    else:
+        monkeypatch.delenv("CI", raising=False)
     monkeypatch.setenv("COLUMNS", "80")
     pytester.makepyfile("def test_this(): assert 0, 'this_failed' * 100")
     result = pytester.runpytest("-rN")
@@ -1090,7 +1181,7 @@ def test_fail_extra_reporting(pytester: Pytester, monkeypatch) -> None:
     result.stdout.fnmatch_lines(
         [
             "*test summary*",
-            "FAILED test_fail_extra_reporting.py::test_this - AssertionError: this_failedt...",
+            f"FAILED test_fail_extra_reporting.py::test_this {expected_message}",
         ]
     )
 
@@ -1177,14 +1268,14 @@ def test_color_yes(pytester: Pytester, color_mapping) -> None:
                 "=*= FAILURES =*=",
                 "{red}{bold}_*_ test_this _*_{reset}",
                 "",
-                "    {kw}def{hl-reset} {function}test_this{hl-reset}():",
-                ">       fail()",
+                "    {kw}def{hl-reset} {function}test_this{hl-reset}():{endline}",
+                ">       fail(){endline}",
                 "",
                 "{bold}{red}test_color_yes.py{reset}:5: ",
                 "_ _ * _ _*",
                 "",
-                "    {kw}def{hl-reset} {function}fail{hl-reset}():",
-                ">       {kw}assert{hl-reset} {number}0{hl-reset}",
+                "    {kw}def{hl-reset} {function}fail{hl-reset}():{endline}",
+                ">       {kw}assert{hl-reset} {number}0{hl-reset}{endline}",
                 "{bold}{red}E       assert 0{reset}",
                 "",
                 "{bold}{red}test_color_yes.py{reset}:2: AssertionError",
@@ -1204,9 +1295,9 @@ def test_color_yes(pytester: Pytester, color_mapping) -> None:
                 "=*= FAILURES =*=",
                 "{red}{bold}_*_ test_this _*_{reset}",
                 "{bold}{red}test_color_yes.py{reset}:5: in test_this",
-                "    fail()",
+                "    fail(){endline}",
                 "{bold}{red}test_color_yes.py{reset}:2: in fail",
-                "    {kw}assert{hl-reset} {number}0{hl-reset}",
+                "    {kw}assert{hl-reset} {number}0{hl-reset}{endline}",
                 "{bold}{red}E   assert 0{reset}",
                 "{red}=*= {red}{bold}1 failed{reset}{red} in *s{reset}{red} =*={reset}",
             ]
@@ -1451,6 +1542,19 @@ class TestGenericReporting:
         s = result.stdout.str()
         assert "def test_func2" not in s
 
+    def test_tb_crashline_pytrace_false(self, pytester: Pytester, option) -> None:
+        p = pytester.makepyfile(
+            """
+            import pytest
+            def test_func1():
+                pytest.fail('test_func1', pytrace=False)
+        """
+        )
+        result = pytester.runpytest("--tb=line")
+        result.stdout.str()
+        bn = p.name
+        result.stdout.fnmatch_lines(["*%s:3: Failed: test_func1" % bn])
+
     def test_pytest_report_header(self, pytester: Pytester, option) -> None:
         pytester.makeconftest(
             """
@@ -1462,9 +1566,10 @@ class TestGenericReporting:
         )
         pytester.mkdir("a").joinpath("conftest.py").write_text(
             """
-def pytest_report_header(config, startdir):
-    return ["line1", str(startdir)]
-"""
+def pytest_report_header(config, start_path):
+    return ["line1", str(start_path)]
+""",
+            encoding="utf-8",
         )
         result = pytester.runpytest("a")
         result.stdout.fnmatch_lines(["*hello: 42*", "line1", str(pytester.path)])
@@ -1568,7 +1673,7 @@ def test_fdopen_kept_alive_issue124(pytester: Pytester) -> None:
         import os, sys
         k = []
         def test_open_file_and_keep_alive(capfd):
-            stdout = os.fdopen(1, 'w', 1)
+            stdout = os.fdopen(1, 'w', buffering=1, encoding='utf-8')
             k.append(stdout)
 
         def test_close_kept_alive_file():
@@ -2125,6 +2230,24 @@ class TestProgressOutputStyle:
         output = pytester.runpytest("--capture=no")
         output.stdout.no_fnmatch_line("*%]*")
 
+    def test_capture_no_progress_enabled(
+        self, many_tests_files, pytester: Pytester
+    ) -> None:
+        pytester.makeini(
+            """
+            [pytest]
+            console_output_style = progress-even-when-capture-no
+        """
+        )
+        output = pytester.runpytest("-s")
+        output.stdout.re_match_lines(
+            [
+                r"test_bar.py \.{10} \s+ \[ 50%\]",
+                r"test_foo.py \.{5} \s+ \[ 75%\]",
+                r"test_foobar.py \.{5} \s+ \[100%\]",
+            ]
+        )
+
 
 class TestProgressWithTeardown:
     """Ensure we show the correct percentages for tests that fail during teardown (#3088)"""
@@ -2230,19 +2353,19 @@ def test_skip_reasons_folding() -> None:
 
     ev1 = cast(CollectReport, X())
     ev1.when = "execute"
-    ev1.skipped = True
+    ev1.skipped = True  # type: ignore[misc]
     ev1.longrepr = longrepr
 
     ev2 = cast(CollectReport, X())
     ev2.when = "execute"
     ev2.longrepr = longrepr
-    ev2.skipped = True
+    ev2.skipped = True  # type: ignore[misc]
 
     # ev3 might be a collection report
     ev3 = cast(CollectReport, X())
     ev3.when = "collect"
     ev3.longrepr = longrepr
-    ev3.skipped = True
+    ev3.skipped = True  # type: ignore[misc]
 
     values = _folded_skips(Path.cwd(), [ev1, ev2, ev3])
     assert len(values) == 1
@@ -2261,7 +2384,7 @@ def test_line_with_reprcrash(monkeypatch: MonkeyPatch) -> None:
     def mock_get_pos(*args):
         return mocked_pos
 
-    monkeypatch.setattr(_pytest.terminal, "_get_pos", mock_get_pos)
+    monkeypatch.setattr(_pytest.terminal, "_get_node_id_with_markup", mock_get_pos)
 
     class config:
         pass
@@ -2275,10 +2398,16 @@ def test_line_with_reprcrash(monkeypatch: MonkeyPatch) -> None:
                 pass
 
     def check(msg, width, expected):
+        class DummyTerminalWriter:
+            fullwidth = width
+
+            def markup(self, word: str, **markup: str):
+                return word
+
         __tracebackhide__ = True
         if msg:
             rep.longrepr.reprcrash.message = msg  # type: ignore
-        actual = _get_line_with_reprcrash_message(config, rep(), width)  # type: ignore
+        actual = _get_line_with_reprcrash_message(config, rep(), DummyTerminalWriter(), {})  # type: ignore
 
         assert actual == expected
         if actual != f"{mocked_verbose_word} {mocked_pos}":
@@ -2378,8 +2507,8 @@ class TestCodeHighlight:
         result.stdout.fnmatch_lines(
             color_mapping.format_for_fnmatch(
                 [
-                    "    {kw}def{hl-reset} {function}test_foo{hl-reset}():",
-                    ">       {kw}assert{hl-reset} {number}1{hl-reset} == {number}10{hl-reset}",
+                    "    {kw}def{hl-reset} {function}test_foo{hl-reset}():{endline}",
+                    ">       {kw}assert{hl-reset} {number}1{hl-reset} == {number}10{hl-reset}{endline}",
                     "{bold}{red}E       assert 1 == 10{reset}",
                 ]
             )
@@ -2400,12 +2529,66 @@ class TestCodeHighlight:
         result.stdout.fnmatch_lines(
             color_mapping.format_for_fnmatch(
                 [
-                    "    {kw}def{hl-reset} {function}test_foo{hl-reset}():",
+                    "    {kw}def{hl-reset} {function}test_foo{hl-reset}():{endline}",
                     "        {print}print{hl-reset}({str}'''{hl-reset}{str}{hl-reset}",
-                    ">   {str}    {hl-reset}{str}'''{hl-reset}); {kw}assert{hl-reset} {number}0{hl-reset}",
+                    ">   {str}    {hl-reset}{str}'''{hl-reset}); {kw}assert{hl-reset} {number}0{hl-reset}{endline}",
                     "{bold}{red}E       assert 0{reset}",
                 ]
             )
+        )
+
+    def test_code_highlight_custom_theme(
+        self, pytester: Pytester, color_mapping, monkeypatch: MonkeyPatch
+    ) -> None:
+        pytester.makepyfile(
+            """
+            def test_foo():
+                assert 1 == 10
+        """
+        )
+        monkeypatch.setenv("PYTEST_THEME", "solarized-dark")
+        monkeypatch.setenv("PYTEST_THEME_MODE", "dark")
+        result = pytester.runpytest("--color=yes")
+        result.stdout.fnmatch_lines(
+            color_mapping.format_for_fnmatch(
+                [
+                    "    {kw}def{hl-reset} {function}test_foo{hl-reset}():{endline}",
+                    ">       {kw}assert{hl-reset} {number}1{hl-reset} == {number}10{hl-reset}{endline}",
+                    "{bold}{red}E       assert 1 == 10{reset}",
+                ]
+            )
+        )
+
+    def test_code_highlight_invalid_theme(
+        self, pytester: Pytester, color_mapping, monkeypatch: MonkeyPatch
+    ) -> None:
+        pytester.makepyfile(
+            """
+            def test_foo():
+                assert 1 == 10
+        """
+        )
+        monkeypatch.setenv("PYTEST_THEME", "invalid")
+        result = pytester.runpytest_subprocess("--color=yes")
+        result.stderr.fnmatch_lines(
+            "ERROR: PYTEST_THEME environment variable had an invalid value: 'invalid'. "
+            "Only valid pygment styles are allowed."
+        )
+
+    def test_code_highlight_invalid_theme_mode(
+        self, pytester: Pytester, color_mapping, monkeypatch: MonkeyPatch
+    ) -> None:
+        pytester.makepyfile(
+            """
+            def test_foo():
+                assert 1 == 10
+        """
+        )
+        monkeypatch.setenv("PYTEST_THEME_MODE", "invalid")
+        result = pytester.runpytest_subprocess("--color=yes")
+        result.stderr.fnmatch_lines(
+            "ERROR: PYTEST_THEME_MODE environment variable had an invalid value: 'invalid'. "
+            "The only allowed values are 'dark' and 'light'."
         )
 
 

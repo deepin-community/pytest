@@ -1,10 +1,10 @@
 import argparse
+import locale
 import os
 import shlex
 import subprocess
 import sys
-
-import py
+from pathlib import Path
 
 import pytest
 from _pytest.config import argparsing as parseopt
@@ -15,12 +15,12 @@ from _pytest.pytester import Pytester
 
 @pytest.fixture
 def parser() -> parseopt.Parser:
-    return parseopt.Parser()
+    return parseopt.Parser(_ispytest=True)
 
 
 class TestParser:
     def test_no_help_by_default(self) -> None:
-        parser = parseopt.Parser(usage="xyz")
+        parser = parseopt.Parser(usage="xyz", _ispytest=True)
         pytest.raises(UsageError, lambda: parser.parse(["-h"]))
 
     def test_custom_prog(self, parser: parseopt.Parser) -> None:
@@ -91,13 +91,13 @@ class TestParser:
         assert groups_names == list("132")
 
     def test_group_addoption(self) -> None:
-        group = parseopt.OptionGroup("hello")
+        group = parseopt.OptionGroup("hello", _ispytest=True)
         group.addoption("--option1", action="store_true")
         assert len(group.options) == 1
         assert isinstance(group.options[0], parseopt.Argument)
 
     def test_group_addoption_conflict(self) -> None:
-        group = parseopt.OptionGroup("hello again")
+        group = parseopt.OptionGroup("hello again", _ispytest=True)
         group.addoption("--option1", "--option-1", action="store_true")
         with pytest.raises(ValueError) as err:
             group.addoption("--option1", "--option-one", action="store_true")
@@ -124,11 +124,11 @@ class TestParser:
         assert not getattr(args, parseopt.FILE_OR_DIR)
 
     def test_parse2(self, parser: parseopt.Parser) -> None:
-        args = parser.parse([py.path.local()])
-        assert getattr(args, parseopt.FILE_OR_DIR)[0] == py.path.local()
+        args = parser.parse([Path(".")])
+        assert getattr(args, parseopt.FILE_OR_DIR)[0] == "."
 
     def test_parse_known_args(self, parser: parseopt.Parser) -> None:
-        parser.parse_known_args([py.path.local()])
+        parser.parse_known_args([Path(".")])
         parser.addoption("--hello", action="store_true")
         ns = parser.parse_known_args(["x", "--y", "--hello", "this"])
         assert ns.hello
@@ -189,7 +189,7 @@ class TestParser:
             elif option.type is str:
                 option.default = "world"
 
-        parser = parseopt.Parser(processopt=defaultget)
+        parser = parseopt.Parser(processopt=defaultget, _ispytest=True)
         parser.addoption("--this", dest="this", type=int, action="store")
         parser.addoption("--hello", dest="hello", type=str, action="store")
         parser.addoption("--no", dest="no", action="store_true")
@@ -291,12 +291,17 @@ class TestParser:
 
 def test_argcomplete(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
     try:
+        encoding = locale.getencoding()  # New in Python 3.11, ignores utf-8 mode
+    except AttributeError:
+        encoding = locale.getpreferredencoding(False)
+    try:
         bash_version = subprocess.run(
             ["bash", "--version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=True,
-            universal_newlines=True,
+            text=True,
+            encoding=encoding,
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         pytest.skip("bash is not available")
@@ -306,7 +311,7 @@ def test_argcomplete(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
 
     script = str(pytester.path.joinpath("test_argcomplete"))
 
-    with open(str(script), "w") as fp:
+    with open(str(script), "w", encoding="utf-8") as fp:
         # redirect output from argcomplete to stdin and stderr is not trivial
         # http://stackoverflow.com/q/12589419/1307905
         # so we use bash
@@ -315,7 +320,7 @@ def test_argcomplete(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
                 shlex.quote(sys.executable)
             )
         )
-    # alternative would be extended Testdir.{run(),_run(),popen()} to be able
+    # alternative would be extended Pytester.{run(),_run(),popen()} to be able
     # to handle a keyword argument env that replaces os.environ in popen or
     # extends the copy, advantage: could not forget to restore
     monkeypatch.setenv("_ARGCOMPLETE", "1")
