@@ -2,17 +2,18 @@ From: Sebastian Ramacher <sramacher@debian.org>
 Date: Thu, 14 Jul 2016 23:01:01 +0200
 Subject: Use local intersphinx mappings
 
+Forwarded: not-needed
 ---
  doc/en/conf.py | 16 ++++++++++++++++
  1 file changed, 16 insertions(+)
 
 diff --git a/doc/en/conf.py b/doc/en/conf.py
-index c631484..3eec549 100644
+index 32f5082..1fa0666 100644
 --- a/doc/en/conf.py
 +++ b/doc/en/conf.py
-@@ -348,6 +348,22 @@ intersphinx_mapping = {
-     "pluggy": ("https://pluggy.readthedocs.io/en/latest", None),
-     "python": ("https://docs.python.org/3", None),
+@@ -395,6 +395,22 @@ intersphinx_mapping = {
+     "setuptools": ("https://setuptools.pypa.io/en/stable", None),
+     "packaging": ("https://packaging.python.org/en/latest", None),
  }
 +def check_object_path(key, url, path):
 +    if os.path.isfile(path):

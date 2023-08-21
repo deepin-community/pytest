@@ -2,19 +2,20 @@ From: =?utf-8?b?T25kxZllaiBOb3bDvQ==?= <onovy@debian.org>
 Date: Fri, 15 Jun 2018 13:43:56 +0200
 Subject: Drop sphinxcontrib_trio extension
 
+Forwarded: not-needed
 ---
  doc/en/conf.py | 1 -
  1 file changed, 1 deletion(-)
 
 diff --git a/doc/en/conf.py b/doc/en/conf.py
-index 3eec549..ec38935 100644
+index 1fa0666..911bdfe 100644
 --- a/doc/en/conf.py
 +++ b/doc/en/conf.py
-@@ -51,7 +51,6 @@ extensions = [
+@@ -75,7 +75,6 @@ extensions = [
      "sphinx.ext.todo",
      "sphinx.ext.viewcode",
      "sphinx_removed_in",
 -    "sphinxcontrib_trio",
  ]
  
- # Add any paths that contain templates here, relative to this directory.
+ # Building PDF docs on readthedocs requires inkscape for svg to pdf
