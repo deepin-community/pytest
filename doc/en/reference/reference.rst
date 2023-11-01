@@ -82,6 +82,8 @@ pytest.exit
 pytest.main
 ~~~~~~~~~~~
 
+**Tutorial**: :ref:`pytest.main-usage`
+
 .. autofunction:: pytest.main
 
 pytest.param
@@ -783,18 +785,66 @@ reporting or interaction with exceptions:
 .. autofunction:: pytest_leave_pdb
 
 
-Objects
--------
+Collection tree objects
+-----------------------
 
-Full reference to objects accessible from :ref:`fixtures <fixture>` or :ref:`hooks <hook-reference>`.
+These are the collector and item classes (collectively called "nodes") which
+make up the collection tree.
 
+Node
+~~~~
 
-CallInfo
-~~~~~~~~
-
-.. autoclass:: pytest.CallInfo()
+.. autoclass:: _pytest.nodes.Node()
     :members:
 
+Collector
+~~~~~~~~~
+
+.. autoclass:: pytest.Collector()
+    :members:
+    :show-inheritance:
+
+Item
+~~~~
+
+.. autoclass:: pytest.Item()
+    :members:
+    :show-inheritance:
+
+File
+~~~~
+
+.. autoclass:: pytest.File()
+    :members:
+    :show-inheritance:
+
+FSCollector
+~~~~~~~~~~~
+
+.. autoclass:: _pytest.nodes.FSCollector()
+    :members:
+    :show-inheritance:
+
+Session
+~~~~~~~
+
+.. autoclass:: pytest.Session()
+    :members:
+    :show-inheritance:
+
+Package
+~~~~~~~
+
+.. autoclass:: pytest.Package()
+    :members:
+    :show-inheritance:
+
+Module
+~~~~~~
+
+.. autoclass:: pytest.Module()
+    :members:
+    :show-inheritance:
 
 Class
 ~~~~~
@@ -803,12 +853,33 @@ Class
     :members:
     :show-inheritance:
 
-Collector
-~~~~~~~~~
+Function
+~~~~~~~~
 
-.. autoclass:: pytest.Collector()
+.. autoclass:: pytest.Function()
     :members:
     :show-inheritance:
+
+FunctionDefinition
+~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: _pytest.python.FunctionDefinition()
+    :members:
+    :show-inheritance:
+
+
+Objects
+-------
+
+Objects accessible from :ref:`fixtures <fixture>` or :ref:`hooks <hook-reference>`
+or importable from ``pytest``.
+
+
+CallInfo
+~~~~~~~~
+
+.. autoclass:: pytest.CallInfo()
+    :members:
 
 CollectReport
 ~~~~~~~~~~~~~
@@ -837,46 +908,11 @@ ExitCode
 .. autoclass:: pytest.ExitCode
     :members:
 
-File
-~~~~
-
-.. autoclass:: pytest.File()
-    :members:
-    :show-inheritance:
-
 
 FixtureDef
 ~~~~~~~~~~
 
 .. autoclass:: _pytest.fixtures.FixtureDef()
-    :members:
-    :show-inheritance:
-
-FSCollector
-~~~~~~~~~~~
-
-.. autoclass:: _pytest.nodes.FSCollector()
-    :members:
-    :show-inheritance:
-
-Function
-~~~~~~~~
-
-.. autoclass:: pytest.Function()
-    :members:
-    :show-inheritance:
-
-FunctionDefinition
-~~~~~~~~~~~~~~~~~~
-
-.. autoclass:: _pytest.python.FunctionDefinition()
-    :members:
-    :show-inheritance:
-
-Item
-~~~~
-
-.. autoclass:: pytest.Item()
     :members:
     :show-inheritance:
 
@@ -907,19 +943,6 @@ Metafunc
 .. autoclass:: pytest.Metafunc()
     :members:
 
-Module
-~~~~~~
-
-.. autoclass:: pytest.Module()
-    :members:
-    :show-inheritance:
-
-Node
-~~~~
-
-.. autoclass:: _pytest.nodes.Node()
-    :members:
-
 Parser
 ~~~~~~
 
@@ -941,13 +964,6 @@ PytestPluginManager
     :inherited-members:
     :show-inheritance:
 
-Session
-~~~~~~~
-
-.. autoclass:: pytest.Session()
-    :members:
-    :show-inheritance:
-
 TestReport
 ~~~~~~~~~~
 
@@ -962,10 +978,10 @@ TestShortLogReport
 .. autoclass:: pytest.TestShortLogReport()
     :members:
 
-_Result
+Result
 ~~~~~~~
 
-Result object used within :ref:`hook wrappers <hookwrapper>`, see :py:class:`_Result in the pluggy documentation <pluggy._callers._Result>` for more information.
+Result object used within :ref:`hook wrappers <hookwrapper>`, see :py:class:`Result in the pluggy documentation <pluggy.Result>` for more information.
 
 Stash
 ~~~~~
@@ -1871,8 +1887,12 @@ All the command-line flags can be obtained by running ``pytest --help``::
                             tests. Optional argument: glob (default: '*').
       --cache-clear         Remove all cache contents at start of test run
       --lfnf={all,none}, --last-failed-no-failures={all,none}
-                            Which tests to run with no previously (known)
-                            failures
+                            With ``--lf``, determines whether to execute tests
+                            when there are no previously (known) failures or
+                            when no cached ``lastfailed`` data was found.
+                            ``all`` (the default) runs the full test suite
+                            again. ``none`` just emits a message about no known
+                            failures and exits successfully.
       --sw, --stepwise      Exit on test failure and continue from last failing
                             test next time
       --sw-skip, --stepwise-skip
