@@ -232,6 +232,9 @@ doc/en/announce/release-7.3.0.rst
 doc/en/announce/release-7.3.1.rst
 doc/en/announce/release-7.3.2.rst
 doc/en/announce/release-7.4.0.rst
+doc/en/announce/release-7.4.1.rst
+doc/en/announce/release-7.4.2.rst
+doc/en/announce/release-7.4.3.rst
 doc/en/announce/sprint2016.rst
 doc/en/example/attic.rst
 doc/en/example/conftest.py

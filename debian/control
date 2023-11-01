@@ -2,7 +2,9 @@ Source: pytest
 Section: python
 Priority: optional
 Maintainer: Debian Python Team <team+python@tracker.debian.org>
-Uploaders: Ondřej Nový <onovy@debian.org>,
+Uploaders:
+ Ondřej Nový <onovy@debian.org>,
+ Timo Röhling <roehling@debian.org>,
 Build-Depends:
  debhelper-compat (= 13),
  dh-sequence-python3,

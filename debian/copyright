@@ -3,20 +3,15 @@ Upstream-Name: pytest
 Source: http://pytest.org/
 
 Files: *
-Copyright: 2004 Holger Kregel <holger@merlinux.eu>
-                and the pytest-dev team / and others
-                see AUTHORS
+Copyright: 2014, Gregory Boissinot
+           2004, Holger Krekel
+	   pytest-dev contributors (see AUTHORS)
 License: Expat
 
 Files: debian/*
-Copyright:
- 2012-2014 Simon Chopin <chopin.simon@gmail.com>
- 2016 Sebastian Ramacher <sramacher@debian.org>
- 2018-2020 Ondřej Nový <onovy@debian.org>
-License: Expat
-
-Files: testing/example_scripts/junit-10.xsd
-Copyright: 2014, Gregory Boissinot
+Copyright: 2018-2020, Ondřej Nový <onovy@debian.org>
+           2016, Sebastian Ramacher <sramacher@debian.org>
+           2012-2014, Simon Chopin <chopin.simon@gmail.com>
 License: Expat
 
 License: Expat
