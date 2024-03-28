@@ -8,10 +8,8 @@ export PYBUILD_NAME=pytest
 # e.g. in an sbuild).
 export PYBUILD_BEFORE_TEST=mkdir -p {dir}/debian/tmp/test-working-directory
 export PYBUILD_AFTER_TEST=rm -rf {dir}/debian/tmp/test-working-directory
-# 2022-12-11 roehling@debian.org: As of this writing, autopkgtest-pkg-pybuild
-# cannot handle custom tests, so we improvise:
-export PYBUILD_TEST_ARGS=BREAK_COMMAND_ON_PURPOSE >/dev/null 2>&1; \
-	cd {dir}/debian/tmp/test-working-directory && \
+export PYBUILD_TEST_CUSTOM=1
+export PYBUILD_TEST_ARGS=cd {dir}/debian/tmp/test-working-directory && \
 	{interpreter} -m pytest --lsof -rfsxX \
 		--ignore={dir}/testing/test_entry_points.py \
 		--ignore={dir}/testing/test_terminal.py \
@@ -23,7 +21,7 @@ export PYBUILD_TEST_ARGS=BREAK_COMMAND_ON_PURPOSE >/dev/null 2>&1; \
 
 execute_after_dh_auto_build:
 ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
-	PYTHONPATH=$(shell pybuild --print {build_dir}) \
+	PYTHONPATH=$(shell pybuild --print {build_dir} --interpreter python3) \
 		SPHINXBUILD=/usr/share/sphinx/scripts/python3/sphinx-build \
 		$(MAKE) -C doc/en man html
 endif

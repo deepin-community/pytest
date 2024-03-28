@@ -8,10 +8,10 @@ Forwarded: not-needed
  1 file changed, 1 deletion(-)
 
 diff --git a/doc/en/conf.py b/doc/en/conf.py
-index 1fa0666..911bdfe 100644
+index 793771e..989e741 100644
 --- a/doc/en/conf.py
 +++ b/doc/en/conf.py
-@@ -75,7 +75,6 @@ extensions = [
+@@ -74,7 +74,6 @@ extensions = [
      "sphinx.ext.todo",
      "sphinx.ext.viewcode",
      "sphinx_removed_in",

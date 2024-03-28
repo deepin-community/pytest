@@ -1,16 +1,16 @@
+# mypy: allow-untyped-defs
 import ast
 import errno
+from functools import partial
 import glob
 import importlib
 import marshal
 import os
+from pathlib import Path
 import py_compile
 import stat
 import sys
 import textwrap
-import zipfile
-from functools import partial
-from pathlib import Path
 from typing import cast
 from typing import Dict
 from typing import Generator
@@ -19,9 +19,9 @@ from typing import Mapping
 from typing import Optional
 from typing import Set
 from unittest import mock
+import zipfile
 
 import _pytest._code
-import pytest
 from _pytest._io.saferepr import DEFAULT_REPR_MAX_SIZE
 from _pytest.assertion import util
 from _pytest.assertion.rewrite import _get_assertion_exprs
@@ -35,6 +35,7 @@ from _pytest.config import Config
 from _pytest.config import ExitCode
 from _pytest.pathlib import make_numbered_dir
 from _pytest.pytester import Pytester
+import pytest
 
 
 def rewrite(src: str) -> ast.Module:
@@ -131,9 +132,8 @@ class TestAssertionRewrite:
             for n in [node, *ast.iter_child_nodes(node)]:
                 assert n.lineno == 3
                 assert n.col_offset == 0
-                if sys.version_info >= (3, 8):
-                    assert n.end_lineno == 6
-                    assert n.end_col_offset == 3
+                assert n.end_lineno == 6
+                assert n.end_col_offset == 3
 
     def test_dont_rewrite(self) -> None:
         s = """'PYTEST_DONT_REWRITE'\nassert 14"""
@@ -200,7 +200,7 @@ class TestAssertionRewrite:
         assert getmsg(f2) == "assert False"
 
         def f3() -> None:
-            assert a_global  # type: ignore[name-defined] # noqa
+            assert a_global  # type: ignore[name-defined] # noqa: F821
 
         assert getmsg(f3, {"a_global": False}) == "assert False"
 
@@ -429,7 +429,7 @@ class TestAssertionRewrite:
 
         def f2() -> None:
             x = 1
-            assert x == 1 or x == 2
+            assert x == 1 or x == 2  # noqa: PLR1714
 
         getmsg(f2, must_pass=True)
 
@@ -686,6 +686,25 @@ class TestAssertionRewrite:
         assert msg is not None
         assert "<MY42 object> < 0" in msg
 
+    def test_assert_handling_raise_in__iter__(self, pytester: Pytester) -> None:
+        pytester.makepyfile(
+            """\
+            class A:
+                def __iter__(self):
+                    raise ValueError()
+
+                def __eq__(self, o: object) -> bool:
+                    return self is o
+
+                def __repr__(self):
+                    return "<A object>"
+
+            assert A() == A()
+            """
+        )
+        result = pytester.runpytest()
+        result.stdout.fnmatch_lines(["*E*assert <A object> == <A object>"])
+
     def test_formatchar(self) -> None:
         def f() -> None:
             assert "%test" == "test"  # type: ignore[comparison-overlap]
@@ -762,11 +781,10 @@ class TestRewriteOnImport:
             f.close()
         z.chmod(256)
         pytester.makepyfile(
-            """
+            f"""
             import sys
-            sys.path.append(%r)
+            sys.path.append({z_fn!r})
             import test_gum.test_lizard"""
-            % (z_fn,)
         )
         assert pytester.runpytest().ret == ExitCode.NO_TESTS_COLLECTED
 
@@ -877,7 +895,11 @@ def test_rewritten():
         )
 
     @pytest.mark.skipif('"__pypy__" in sys.modules')
-    def test_pyc_vs_pyo(self, pytester: Pytester, monkeypatch) -> None:
+    def test_pyc_vs_pyo(
+        self,
+        pytester: Pytester,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         pytester.makepyfile(
             """
             import pytest
@@ -887,13 +909,13 @@ def test_rewritten():
         )
         p = make_numbered_dir(root=Path(pytester.path), prefix="runpytest-")
         tmp = "--basetemp=%s" % p
-        monkeypatch.setenv("PYTHONOPTIMIZE", "2")
-        monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
-        monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
-        assert pytester.runpytest_subprocess(tmp).ret == 0
-        tagged = "test_pyc_vs_pyo." + PYTEST_TAG
-        assert tagged + ".pyo" in os.listdir("__pycache__")
-        monkeypatch.undo()
+        with monkeypatch.context() as mp:
+            mp.setenv("PYTHONOPTIMIZE", "2")
+            mp.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
+            mp.delenv("PYTHONPYCACHEPREFIX", raising=False)
+            assert pytester.runpytest_subprocess(tmp).ret == 0
+            tagged = "test_pyc_vs_pyo." + PYTEST_TAG
+            assert tagged + ".pyo" in os.listdir("__pycache__")
         monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
         monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
         assert pytester.runpytest_subprocess(tmp).ret == 1
@@ -1014,8 +1036,8 @@ class TestAssertionRewriteHookDetails:
         assert pytester.runpytest().ret == 0
 
     def test_write_pyc(self, pytester: Pytester, tmp_path) -> None:
-        from _pytest.assertion.rewrite import _write_pyc
         from _pytest.assertion import AssertionState
+        from _pytest.assertion.rewrite import _write_pyc
 
         config = pytester.parseconfig()
         state = AssertionState(config, "rewrite")
@@ -1065,6 +1087,7 @@ class TestAssertionRewriteHookDetails:
         an exception that is propagated to the caller.
         """
         import py_compile
+
         from _pytest.assertion.rewrite import _read_pyc
 
         source = tmp_path / "source.py"
@@ -1270,9 +1293,6 @@ class TestIssue2121:
         result.stdout.fnmatch_lines(["*E*assert (1 + 1) == 3"])
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 8), reason="walrus operator not available in py<38"
-)
 class TestIssue10743:
     def test_assertion_walrus_operator(self, pytester: Pytester) -> None:
         pytester.makepyfile(
@@ -1441,9 +1461,6 @@ class TestIssue10743:
         assert result.ret == 0
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 8), reason="walrus operator not available in py<38"
-)
 class TestIssue11028:
     def test_assertion_walrus_operator_in_operand(self, pytester: Pytester) -> None:
         pytester.makepyfile(
@@ -1532,7 +1549,6 @@ class TestIssue11028:
 
 
 class TestIssue11239:
-    @pytest.mark.skipif(sys.version_info[:2] <= (3, 7), reason="Only Python 3.8+")
     def test_assertion_walrus_different_test_cases(self, pytester: Pytester) -> None:
         """Regression for (#11239)
 
@@ -1840,10 +1856,10 @@ class TestAssertionPass:
         result.assert_outcomes(passed=1)
 
 
+# fmt: off
 @pytest.mark.parametrize(
     ("src", "expected"),
     (
-        # fmt: off
         pytest.param(b"", {}, id="trivial"),
         pytest.param(
             b"def x(): assert 1\n",
@@ -1920,9 +1936,9 @@ class TestAssertionPass:
             {1: "5"},
             id="no newline at end of file",
         ),
-        # fmt: on
     ),
 )
+# fmt: on
 def test_get_assertion_exprs(src, expected) -> None:
     assert _get_assertion_exprs(src) == expected
 
@@ -1979,16 +1995,10 @@ class TestPyCacheDir:
     )
     def test_get_cache_dir(self, monkeypatch, prefix, source, expected) -> None:
         monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
-
-        if prefix is not None and sys.version_info < (3, 8):
-            pytest.skip("pycache_prefix not available in py<38")
         monkeypatch.setattr(sys, "pycache_prefix", prefix, raising=False)
 
         assert get_cache_dir(Path(source)) == Path(expected)
 
-    @pytest.mark.skipif(
-        sys.version_info < (3, 8), reason="pycache_prefix not available in py<38"
-    )
     @pytest.mark.skipif(
         sys.version_info[:2] == (3, 9) and sys.platform.startswith("win"),
         reason="#9298",
@@ -2024,9 +2034,7 @@ class TestPyCacheDir:
         assert test_foo_pyc.is_file()
 
         # normal file: not touched by pytest, normal cache tag
-        bar_init_pyc = get_cache_dir(bar_init) / "__init__.{cache_tag}.pyc".format(
-            cache_tag=sys.implementation.cache_tag
-        )
+        bar_init_pyc = get_cache_dir(bar_init) / f"__init__.{sys.implementation.cache_tag}.pyc"
         assert bar_init_pyc.is_file()
 
 
@@ -2047,12 +2055,14 @@ class TestReprSizeVerbosity:
     )
     def test_get_maxsize_for_saferepr(self, verbose: int, expected_size) -> None:
         class FakeConfig:
-            def getoption(self, name: str) -> int:
-                assert name == "verbose"
+            def get_verbosity(self, verbosity_type: Optional[str] = None) -> int:
                 return verbose
 
         config = FakeConfig()
         assert _get_maxsize_for_saferepr(cast(Config, config)) == expected_size
+
+    def test_get_maxsize_for_saferepr_no_config(self) -> None:
+        assert _get_maxsize_for_saferepr(None) == DEFAULT_REPR_MAX_SIZE
 
     def create_test_file(self, pytester: Pytester, size: int) -> None:
         pytester.makepyfile(
@@ -2077,3 +2087,17 @@ class TestReprSizeVerbosity:
         self.create_test_file(pytester, DEFAULT_REPR_MAX_SIZE * 10)
         result = pytester.runpytest("-vv")
         result.stdout.no_fnmatch_line("*xxx...xxx*")
+
+
+class TestIssue11140:
+    def test_constant_not_picked_as_module_docstring(self, pytester: Pytester) -> None:
+        pytester.makepyfile(
+            """\
+            0
+
+            def test_foo():
+                pass
+            """
+        )
+        result = pytester.runpytest()
+        assert result.ret == 0

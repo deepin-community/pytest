@@ -1,13 +1,15 @@
+# mypy: allow-untyped-defs
 import dataclasses
+import importlib.metadata
 import os
+import subprocess
 import sys
 import types
 
-import pytest
-from _pytest.compat import importlib_metadata
 from _pytest.config import ExitCode
 from _pytest.pathlib import symlink_or_skip
 from _pytest.pytester import Pytester
+import pytest
 
 
 def prepend_pythonpath(*dirs) -> str:
@@ -139,7 +141,7 @@ class TestGeneralUsage:
         def my_dists():
             return (DummyDist(entry_points),)
 
-        monkeypatch.setattr(importlib_metadata, "distributions", my_dists)
+        monkeypatch.setattr(importlib.metadata, "distributions", my_dists)
         params = ("-p", "mycov") if load_cov_early else ()
         pytester.runpytest_inprocess(*params)
         if load_cov_early:
@@ -185,7 +187,8 @@ class TestGeneralUsage:
         assert result.ret == ExitCode.USAGE_ERROR
         result.stderr.fnmatch_lines(
             [
-                f"ERROR: found no collectors for {p2}",
+                f"ERROR: not found: {p2}",
+                "(no match in any of *)",
                 "",
             ]
         )
@@ -340,6 +343,45 @@ class TestGeneralUsage:
         res = pytester.runpytest(p.name + "::" + "test_func[1]")
         assert res.ret == 0
         res.stdout.fnmatch_lines(["*1 passed*"])
+
+    def test_direct_addressing_selects_duplicates(self, pytester: Pytester) -> None:
+        p = pytester.makepyfile(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("a", [1, 2, 10, 11, 2, 1, 12, 11])
+            def test_func(a):
+                pass
+            """
+        )
+        result = pytester.runpytest(p)
+        result.assert_outcomes(failed=0, passed=8)
+
+    def test_direct_addressing_selects_duplicates_1(self, pytester: Pytester) -> None:
+        p = pytester.makepyfile(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("a", [1, 2, 10, 11, 2, 1, 12, 1_1,2_1])
+            def test_func(a):
+                pass
+            """
+        )
+        result = pytester.runpytest(p)
+        result.assert_outcomes(failed=0, passed=9)
+
+    def test_direct_addressing_selects_duplicates_2(self, pytester: Pytester) -> None:
+        p = pytester.makepyfile(
+            """
+            import pytest
+
+            @pytest.mark.parametrize("a", ["a","b","c","a","a1"])
+            def test_func(a):
+                pass
+            """
+        )
+        result = pytester.runpytest(p)
+        result.assert_outcomes(failed=0, passed=5)
 
     def test_direct_addressing_notfound(self, pytester: Pytester) -> None:
         p = pytester.makepyfile(
@@ -1164,7 +1206,6 @@ def test_usage_error_code(pytester: Pytester) -> None:
     assert result.ret == ExitCode.USAGE_ERROR
 
 
-@pytest.mark.filterwarnings("default::pytest.PytestUnhandledCoroutineWarning")
 def test_warn_on_async_function(pytester: Pytester) -> None:
     # In the below we .close() the coroutine only to avoid
     # "RuntimeWarning: coroutine 'test_2' was never awaited"
@@ -1181,7 +1222,7 @@ def test_warn_on_async_function(pytester: Pytester) -> None:
             return coro
     """
     )
-    result = pytester.runpytest()
+    result = pytester.runpytest("-Wdefault")
     result.stdout.fnmatch_lines(
         [
             "test_async.py::test_1",
@@ -1197,7 +1238,6 @@ def test_warn_on_async_function(pytester: Pytester) -> None:
     )
 
 
-@pytest.mark.filterwarnings("default::pytest.PytestUnhandledCoroutineWarning")
 def test_warn_on_async_gen_function(pytester: Pytester) -> None:
     pytester.makepyfile(
         test_async="""
@@ -1209,7 +1249,7 @@ def test_warn_on_async_gen_function(pytester: Pytester) -> None:
             return test_2()
     """
     )
-    result = pytester.runpytest()
+    result = pytester.runpytest("-Wdefault")
     result.stdout.fnmatch_lines(
         [
             "test_async.py::test_1",
@@ -1352,3 +1392,61 @@ def test_doctest_and_normal_imports_with_importlib(pytester: Pytester) -> None:
     )
     result = pytester.runpytest_subprocess()
     result.stdout.fnmatch_lines("*1 passed*")
+
+
+@pytest.mark.skip(reason="Test is not isolated")
+def test_issue_9765(pytester: Pytester) -> None:
+    """Reproducer for issue #9765 on Windows
+
+    https://github.com/pytest-dev/pytest/issues/9765
+    """
+    pytester.makepyprojecttoml(
+        """
+        [tool.pytest.ini_options]
+        addopts = "-p my_package.plugin.my_plugin"
+        """
+    )
+    pytester.makepyfile(
+        **{
+            "setup.py": (
+                """
+                from setuptools import setup
+
+                if __name__ == '__main__':
+                    setup(name='my_package', packages=['my_package', 'my_package.plugin'])
+                """
+            ),
+            "my_package/__init__.py": "",
+            "my_package/conftest.py": "",
+            "my_package/test_foo.py": "def test(): pass",
+            "my_package/plugin/__init__.py": "",
+            "my_package/plugin/my_plugin.py": (
+                """
+                import pytest
+
+                def pytest_configure(config):
+
+                    class SimplePlugin:
+                        @pytest.fixture(params=[1, 2, 3])
+                        def my_fixture(self, request):
+                            yield request.param
+
+                    config.pluginmanager.register(SimplePlugin())
+                """
+            ),
+        }
+    )
+
+    subprocess.run([sys.executable, "setup.py", "develop"], check=True)
+    try:
+        # We are using subprocess.run rather than pytester.run on purpose.
+        # pytester.run is adding the current directory to PYTHONPATH which avoids
+        # the bug. We also use pytest rather than python -m pytest for the same
+        # PYTHONPATH reason.
+        subprocess.run(
+            ["pytest", "my_package"], capture_output=True, check=True, text=True
+        )
+    except subprocess.CalledProcessError as exc:
+        raise AssertionError(
+            f"pytest command failed:\n{exc.stdout=!s}\n{exc.stderr=!s}"
+        ) from exc

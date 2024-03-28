@@ -8,10 +8,10 @@ Forwarded: not-needed
  1 file changed, 16 insertions(+)
 
 diff --git a/doc/en/conf.py b/doc/en/conf.py
-index 32f5082..1fa0666 100644
+index 8059c35..793771e 100644
 --- a/doc/en/conf.py
 +++ b/doc/en/conf.py
-@@ -395,6 +395,22 @@ intersphinx_mapping = {
+@@ -438,6 +438,22 @@ intersphinx_mapping = {
      "setuptools": ("https://setuptools.pypa.io/en/stable", None),
      "packaging": ("https://packaging.python.org/en/latest", None),
  }

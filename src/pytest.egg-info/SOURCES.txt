@@ -1,6 +1,6 @@
 .coveragerc
+.git-blame-ignore-revs
 .gitattributes
-.gitblameignore
 .gitignore
 .pre-commit-config.yaml
 .readthedocs.yml
@@ -16,8 +16,6 @@ RELEASING.rst
 TIDELIFT.rst
 codecov.yml
 pyproject.toml
-setup.cfg
-setup.py
 tox.ini
 .github/FUNDING.yml
 .github/PULL_REQUEST_TEMPLATE.md
@@ -235,9 +233,18 @@ doc/en/announce/release-7.4.0.rst
 doc/en/announce/release-7.4.1.rst
 doc/en/announce/release-7.4.2.rst
 doc/en/announce/release-7.4.3.rst
+doc/en/announce/release-7.4.4.rst
+doc/en/announce/release-8.0.0.rst
+doc/en/announce/release-8.0.0rc1.rst
+doc/en/announce/release-8.0.0rc2.rst
+doc/en/announce/release-8.0.1.rst
+doc/en/announce/release-8.0.2.rst
+doc/en/announce/release-8.1.0.rst
+doc/en/announce/release-8.1.1.rst
 doc/en/announce/sprint2016.rst
 doc/en/example/attic.rst
 doc/en/example/conftest.py
+doc/en/example/customdirectory.rst
 doc/en/example/index.rst
 doc/en/example/markers.rst
 doc/en/example/multipython.py
@@ -254,6 +261,12 @@ doc/en/example/assertion/test_failures.py
 doc/en/example/assertion/test_setup_flow_example.py
 doc/en/example/assertion/global_testmodule_config/conftest.py
 doc/en/example/assertion/global_testmodule_config/test_hello_world.py
+doc/en/example/customdirectory/conftest.py
+doc/en/example/customdirectory/pytest.ini
+doc/en/example/customdirectory/tests/manifest.json
+doc/en/example/customdirectory/tests/test_first.py
+doc/en/example/customdirectory/tests/test_second.py
+doc/en/example/customdirectory/tests/test_third.py
 doc/en/example/fixtures/fixture_availability.svg
 doc/en/example/fixtures/fixture_availability_plugins.svg
 doc/en/example/fixtures/test_fixtures_order_autouse.py
@@ -293,7 +306,6 @@ doc/en/how-to/index.rst
 doc/en/how-to/logging.rst
 doc/en/how-to/mark.rst
 doc/en/how-to/monkeypatch.rst
-doc/en/how-to/nose.rst
 doc/en/how-to/output.rst
 doc/en/how-to/parametrize.rst
 doc/en/how-to/plugins.rst
@@ -322,8 +334,9 @@ doc/en/reference/index.rst
 doc/en/reference/plugin_list.rst
 doc/en/reference/reference.rst
 extra/get_issues.py
+scripts/.gitignore
+scripts/generate-gh-release-notes.py
 scripts/prepare-release-pr.py
-scripts/publish-gh-release-notes.py
 scripts/release.major.rst
 scripts/release.minor.rst
 scripts/release.patch.rst
@@ -352,7 +365,6 @@ src/_pytest/logging.py
 src/_pytest/main.py
 src/_pytest/monkeypatch.py
 src/_pytest/nodes.py
-src/_pytest/nose.py
 src/_pytest/outcomes.py
 src/_pytest/pastebin.py
 src/_pytest/pathlib.py
@@ -383,6 +395,7 @@ src/_pytest/_code/__init__.py
 src/_pytest/_code/code.py
 src/_pytest/_code/source.py
 src/_pytest/_io/__init__.py
+src/_pytest/_io/pprint.py
 src/_pytest/_io/saferepr.py
 src/_pytest/_io/terminalwriter.py
 src/_pytest/_io/wcwidth.py
@@ -408,7 +421,6 @@ src/pytest.egg-info/PKG-INFO
 src/pytest.egg-info/SOURCES.txt
 src/pytest.egg-info/dependency_links.txt
 src/pytest.egg-info/entry_points.txt
-src/pytest.egg-info/not-zip-safe
 src/pytest.egg-info/requires.txt
 src/pytest.egg-info/top_level.txt
 testing/acceptance_test.py
@@ -439,7 +451,6 @@ testing/test_mark_expression.py
 testing/test_meta.py
 testing/test_monkeypatch.py
 testing/test_nodes.py
-testing/test_nose.py
 testing/test_parseopt.py
 testing/test_pastebin.py
 testing/test_pathlib.py
@@ -489,6 +500,12 @@ testing/example_scripts/config/collect_pytest_prefix/conftest.py
 testing/example_scripts/config/collect_pytest_prefix/test_foo.py
 testing/example_scripts/conftest_usageerror/__init__.pyi
 testing/example_scripts/conftest_usageerror/conftest.py
+testing/example_scripts/customdirectory/conftest.py
+testing/example_scripts/customdirectory/pytest.ini
+testing/example_scripts/customdirectory/tests/manifest.json
+testing/example_scripts/customdirectory/tests/test_first.py
+testing/example_scripts/customdirectory/tests/test_second.py
+testing/example_scripts/customdirectory/tests/test_third.py
 testing/example_scripts/dataclasses/test_compare_dataclasses.py
 testing/example_scripts/dataclasses/test_compare_dataclasses_field_comparison_off.py
 testing/example_scripts/dataclasses/test_compare_dataclasses_verbose.py
@@ -551,6 +568,7 @@ testing/freeze/runtests_script.py
 testing/freeze/tox_run.py
 testing/freeze/tests/test_doctest.txt
 testing/freeze/tests/test_trivial.py
+testing/io/test_pprint.py
 testing/io/test_saferepr.py
 testing/io/test_terminalwriter.py
 testing/io/test_wcwidth.py

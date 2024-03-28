@@ -1,16 +1,17 @@
+# mypy: allow-untyped-defs
 import argparse
 import locale
 import os
+from pathlib import Path
 import shlex
 import subprocess
 import sys
-from pathlib import Path
 
-import pytest
 from _pytest.config import argparsing as parseopt
 from _pytest.config.exceptions import UsageError
 from _pytest.monkeypatch import MonkeyPatch
 from _pytest.pytester import Pytester
+import pytest
 
 
 @pytest.fixture
@@ -54,9 +55,6 @@ class TestParser:
         assert argument.type is str
         argument = parseopt.Argument("-t", dest="abc", type=float)
         assert argument.type is float
-        with pytest.warns(DeprecationWarning):
-            with pytest.raises(KeyError):
-                argument = parseopt.Argument("-t", dest="abc", type="choice")
         argument = parseopt.Argument(
             "-t", dest="abc", type=str, choices=["red", "blue"]
         )
@@ -290,10 +288,10 @@ class TestParser:
 
 
 def test_argcomplete(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
-    try:
+    if sys.version_info >= (3, 11):
         # New in Python 3.11, ignores utf-8 mode
-        encoding = locale.getencoding()  # type: ignore[attr-defined]
-    except AttributeError:
+        encoding = locale.getencoding()
+    else:
         encoding = locale.getpreferredencoding(False)
     try:
         bash_version = subprocess.run(
@@ -317,9 +315,7 @@ def test_argcomplete(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
         # http://stackoverflow.com/q/12589419/1307905
         # so we use bash
         fp.write(
-            'COMP_WORDBREAKS="$COMP_WORDBREAKS" {} -m pytest 8>&1 9>&2'.format(
-                shlex.quote(sys.executable)
-            )
+            f'COMP_WORDBREAKS="$COMP_WORDBREAKS" {shlex.quote(sys.executable)} -m pytest 8>&1 9>&2'
         )
     # alternative would be extended Pytester.{run(),_run(),popen()} to be able
     # to handle a keyword argument env that replaces os.environ in popen or
@@ -337,9 +333,7 @@ def test_argcomplete(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
         pytest.skip("argcomplete not available")
     elif not result.stdout.str():
         pytest.skip(
-            "bash provided no output on stdout, argcomplete not available? (stderr={!r})".format(
-                result.stderr.str()
-            )
+            f"bash provided no output on stdout, argcomplete not available? (stderr={result.stderr.str()!r})"
         )
     else:
         result.stdout.fnmatch_lines(["--funcargs", "--fulltrace"])

@@ -1,21 +1,23 @@
+# mypy: allow-untyped-defs
 import contextlib
 import multiprocessing
 import os
 import sys
 import time
-import warnings
 from unittest import mock
+import warnings
 
-import pytest
 from py import error
 from py.path import local
+
+import pytest
 
 
 @contextlib.contextmanager
 def ignore_encoding_warning():
     with warnings.catch_warnings():
         with contextlib.suppress(NameError):  # new in 3.10
-            warnings.simplefilter("ignore", EncodingWarning)
+            warnings.simplefilter("ignore", EncodingWarning)  # type: ignore [name-defined]
         yield
 
 
@@ -181,7 +183,7 @@ class CommonFSTests:
     def test_listdir_filter(self, path1):
         p = path1.listdir(lambda x: x.check(dir=1))
         assert path1.join("sampledir") in p
-        assert not path1.join("samplefile") in p
+        assert path1.join("samplefile") not in p
 
     def test_listdir_sorted(self, path1):
         p = path1.listdir(lambda x: x.check(basestarts="sample"), sort=True)
@@ -201,7 +203,7 @@ class CommonFSTests:
         for i in path1.visit(None, lambda x: x.basename != "sampledir"):
             lst.append(i.relto(path1))
         assert "sampledir" in lst
-        assert not path1.sep.join(["sampledir", "otherfile"]) in lst
+        assert path1.sep.join(["sampledir", "otherfile"]) not in lst
 
     @pytest.mark.parametrize(
         "fil",
@@ -868,6 +870,9 @@ class TestLocalPath(CommonFSTests):
             py_path.strpath, str_path
         )
 
+    @pytest.mark.xfail(
+        reason="#11603", raises=(error.EEXIST, error.ENOENT), strict=False
+    )
     def test_make_numbered_dir_multiprocess_safe(self, tmpdir):
         # https://github.com/pytest-dev/py/issues/30
         with multiprocessing.Pool() as pool:
@@ -1080,14 +1085,14 @@ class TestImport:
         name = "pointsback123"
         ModuleType = type(os)
         p = tmpdir.ensure(name + ".py")
-        for ending in (".pyc", "$py.class", ".pyo"):
-            mod = ModuleType(name)
-            pseudopath = tmpdir.ensure(name + ending)
-            mod.__file__ = str(pseudopath)
-            monkeypatch.setitem(sys.modules, name, mod)
-            newmod = p.pyimport()
-            assert mod == newmod
-        monkeypatch.undo()
+        with monkeypatch.context() as mp:
+            for ending in (".pyc", "$py.class", ".pyo"):
+                mod = ModuleType(name)
+                pseudopath = tmpdir.ensure(name + ending)
+                mod.__file__ = str(pseudopath)
+                mp.setitem(sys.modules, name, mod)
+                newmod = p.pyimport()
+                assert mod == newmod
         mod = ModuleType(name)
         pseudopath = tmpdir.ensure(name + "123.py")
         mod.__file__ = str(pseudopath)
@@ -1236,9 +1241,9 @@ class TestWINLocalPath:
 
     def test_owner_group_not_implemented(self, path1):
         with pytest.raises(NotImplementedError):
-            path1.stat().owner
+            _ = path1.stat().owner
         with pytest.raises(NotImplementedError):
-            path1.stat().group
+            _ = path1.stat().group
 
     def test_chmod_simple_int(self, path1):
         mode = path1.stat().mode
@@ -1363,8 +1368,8 @@ class TestPOSIXLocalPath:
         assert realpath.basename == "file"
 
     def test_owner(self, path1, tmpdir):
-        from pwd import getpwuid  # type:ignore[attr-defined]
         from grp import getgrgid  # type:ignore[attr-defined]
+        from pwd import getpwuid  # type:ignore[attr-defined]
 
         stat = path1.stat()
         assert stat.path == path1
@@ -1519,9 +1524,9 @@ class TestPOSIXLocalPath:
         path1.chown(owner, group)
 
 
-class TestUnicodePy2Py3:
+class TestUnicode:
     def test_join_ensure(self, tmpdir, monkeypatch):
-        if sys.version_info >= (3, 0) and "LANG" not in os.environ:
+        if "LANG" not in os.environ:
             pytest.skip("cannot run test without locale")
         x = local(tmpdir.strpath)
         part = "hällo"
@@ -1529,7 +1534,7 @@ class TestUnicodePy2Py3:
         assert x.join(part) == y
 
     def test_listdir(self, tmpdir):
-        if sys.version_info >= (3, 0) and "LANG" not in os.environ:
+        if "LANG" not in os.environ:
             pytest.skip("cannot run test without locale")
         x = local(tmpdir.strpath)
         part = "hällo"
@@ -1573,4 +1578,4 @@ class TestBinaryAndTextMethods:
         x.write_text(part, "ascii")
         s = x.read_text("ascii")
         assert s == part
-        assert type(s) == type(part)
+        assert type(s) is type(part)

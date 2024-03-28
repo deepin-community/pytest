@@ -1,17 +1,18 @@
+# mypy: allow-untyped-defs
 import os
+from pathlib import Path
 import sys
 import textwrap
-from pathlib import Path
 
-import pytest
-from _pytest import fixtures
 from _pytest.compat import getfuncargnames
 from _pytest.config import ExitCode
-from _pytest.fixtures import FixtureRequest
+from _pytest.fixtures import deduplicate_names
+from _pytest.fixtures import TopRequest
 from _pytest.monkeypatch import MonkeyPatch
 from _pytest.pytester import get_public_names
 from _pytest.pytester import Pytester
 from _pytest.python import Function
+import pytest
 
 
 def test_getfuncargnames_functions():
@@ -659,7 +660,7 @@ class TestRequestBasic:
         """
         )
         assert isinstance(item, Function)
-        req = fixtures.FixtureRequest(item, _ispytest=True)
+        req = TopRequest(item, _ispytest=True)
         assert req.function == item.obj
         assert req.keywords == item.keywords
         assert hasattr(req.module, "test_func")
@@ -699,10 +700,9 @@ class TestRequestBasic:
         """
         )
         (item1,) = pytester.genitems([modcol])
+        assert isinstance(item1, Function)
         assert item1.name == "test_method"
-        arg2fixturedefs = fixtures.FixtureRequest(
-            item1, _ispytest=True
-        )._arg2fixturedefs
+        arg2fixturedefs = TopRequest(item1, _ispytest=True)._arg2fixturedefs
         assert len(arg2fixturedefs) == 1
         assert arg2fixturedefs["something"][0].argname == "something"
 
@@ -712,7 +712,7 @@ class TestRequestBasic:
     )
     def test_request_garbage(self, pytester: Pytester) -> None:
         try:
-            import xdist  # noqa
+            import xdist  # noqa: F401
         except ImportError:
             pass
         else:
@@ -932,8 +932,9 @@ class TestRequestBasic:
         self, pytester: Pytester
     ) -> None:
         """
-        Ensure exceptions raised during teardown by a finalizer are suppressed
-        until all finalizers are called, re-raising the first exception (#2440)
+        Ensure exceptions raised during teardown by finalizers are suppressed
+        until all finalizers are called, then re-reaised together in an
+        exception group (#2440)
         """
         pytester.makepyfile(
             """
@@ -960,14 +961,23 @@ class TestRequestBasic:
         """
         )
         result = pytester.runpytest()
+        result.assert_outcomes(passed=2, errors=1)
         result.stdout.fnmatch_lines(
-            ["*Exception: Error in excepts fixture", "* 2 passed, 1 error in *"]
+            [
+                '  | *ExceptionGroup: errors while tearing down fixture "subrequest" of <Function test_first> (2 sub-exceptions)',  # noqa: E501
+                "  +-+---------------- 1 ----------------",
+                "    | Exception: Error in something fixture",
+                "    +---------------- 2 ----------------",
+                "    | Exception: Error in excepts fixture",
+                "    +------------------------------------",
+            ],
         )
 
     def test_request_getmodulepath(self, pytester: Pytester) -> None:
         modcol = pytester.getmodulecol("def test_somefunc(): pass")
         (item,) = pytester.genitems([modcol])
-        req = fixtures.FixtureRequest(item, _ispytest=True)
+        assert isinstance(item, Function)
+        req = TopRequest(item, _ispytest=True)
         assert req.path == modcol.path
 
     def test_request_fixturenames(self, pytester: Pytester) -> None:
@@ -1125,7 +1135,8 @@ class TestRequestMarking:
                     pass
         """
         )
-        req1 = fixtures.FixtureRequest(item1, _ispytest=True)
+        assert isinstance(item1, Function)
+        req1 = TopRequest(item1, _ispytest=True)
         assert "xfail" not in item1.keywords
         req1.applymarker(pytest.mark.xfail)
         assert "xfail" in item1.keywords
@@ -1286,7 +1297,7 @@ class TestFixtureUsages:
     @pytest.mark.parametrize("scope", ["function", "session"])
     def test_parameters_without_eq_semantics(self, scope, pytester: Pytester) -> None:
         pytester.makepyfile(
-            """
+            f"""
             class NoEq1:  # fails on `a == b` statement
                 def __eq__(self, _):
                     raise RuntimeError
@@ -1308,9 +1319,7 @@ class TestFixtureUsages:
 
             def test2(no_eq):
                 pass
-        """.format(
-                scope=scope
-            )
+        """
         )
         result = pytester.runpytest()
         result.stdout.fnmatch_lines(["*4 passed*"])
@@ -1573,7 +1582,7 @@ class TestFixtureManagerParseFactories:
             """
             def test_hello(item, fm):
                 for name in ("fm", "hello", "item"):
-                    faclist = fm.getfixturedefs(name, item.nodeid)
+                    faclist = fm.getfixturedefs(name, item)
                     assert len(faclist) == 1
                     fac = faclist[0]
                     assert fac.func.__name__ == name
@@ -1597,7 +1606,7 @@ class TestFixtureManagerParseFactories:
                 def hello(self, request):
                     return "class"
                 def test_hello(self, item, fm):
-                    faclist = fm.getfixturedefs("hello", item.nodeid)
+                    faclist = fm.getfixturedefs("hello", item)
                     print(faclist)
                     assert len(faclist) == 3
 
@@ -1803,7 +1812,7 @@ class TestAutouseDiscovery:
             """
             from _pytest.pytester import get_public_names
             def test_check_setup(item, fm):
-                autousenames = list(fm._getautousenames(item.nodeid))
+                autousenames = list(fm._getautousenames(item))
                 assert len(get_public_names(autousenames)) == 2
                 assert "perfunction2" in autousenames
                 assert "perfunction" in autousenames
@@ -2100,9 +2109,7 @@ class TestAutouseManagement:
         reprec = pytester.inline_run("-v", "-s", "--confcutdir", pytester.path)
         reprec.assertoutcome(passed=8)
         config = reprec.getcalls("pytest_unconfigure")[0].config
-        values = config.pluginmanager._getconftestmodules(
-            p, importmode="prepend", rootpath=pytester.path
-        )[0].values
+        values = config.pluginmanager._getconftestmodules(p)[0].values
         assert values == ["fin_a1", "fin_a2", "fin_b1", "fin_b2"] * 2
 
     def test_scope_ordering(self, pytester: Pytester) -> None:
@@ -2199,7 +2206,7 @@ class TestAutouseManagement:
                 pass
             def test_check():
                 assert values == ["new1", "new2", "fin2", "fin1"]
-        """
+        """  # noqa: UP031 (python syntax issues)
             % locals()
         )
         reprec = pytester.inline_run("-s")
@@ -2461,6 +2468,31 @@ class TestFixtureMarker:
             ["*ScopeMismatch*You tried*function*session*request*"]
         )
 
+    def test_scope_mismatch_already_computed_dynamic(self, pytester: Pytester) -> None:
+        pytester.makepyfile(
+            test_it="""
+                import pytest
+
+                @pytest.fixture(scope="function")
+                def fixfunc(): pass
+
+                @pytest.fixture(scope="module")
+                def fixmod(fixfunc): pass
+
+                def test_it(request, fixfunc):
+                    request.getfixturevalue("fixmod")
+            """,
+        )
+
+        result = pytester.runpytest()
+        assert result.ret == ExitCode.TESTS_FAILED
+        result.stdout.fnmatch_lines(
+            [
+                "*ScopeMismatch*involved factories*",
+                "test_it.py:6:  def fixmod(fixfunc)",
+            ]
+        )
+
     def test_dynamic_scope(self, pytester: Pytester) -> None:
         pytester.makeconftest(
             """
@@ -2707,12 +2739,12 @@ class TestFixtureMarker:
             """
             test_dynamic_parametrized_ordering.py::test[flavor1-vxlan] PASSED
             test_dynamic_parametrized_ordering.py::test2[flavor1-vxlan] PASSED
-            test_dynamic_parametrized_ordering.py::test[flavor2-vxlan] PASSED
-            test_dynamic_parametrized_ordering.py::test2[flavor2-vxlan] PASSED
-            test_dynamic_parametrized_ordering.py::test[flavor2-vlan] PASSED
-            test_dynamic_parametrized_ordering.py::test2[flavor2-vlan] PASSED
             test_dynamic_parametrized_ordering.py::test[flavor1-vlan] PASSED
             test_dynamic_parametrized_ordering.py::test2[flavor1-vlan] PASSED
+            test_dynamic_parametrized_ordering.py::test[flavor2-vlan] PASSED
+            test_dynamic_parametrized_ordering.py::test2[flavor2-vlan] PASSED
+            test_dynamic_parametrized_ordering.py::test[flavor2-vxlan] PASSED
+            test_dynamic_parametrized_ordering.py::test2[flavor2-vxlan] PASSED
         """
         )
 
@@ -3062,7 +3094,7 @@ class TestFixtureMarker:
                 pass
             def test_other():
                 pass
-        """
+        """  # noqa: UP031 (python syntax issues)
             % {"scope": scope}
         )
         reprec = pytester.inline_run("-lvs")
@@ -3262,7 +3294,7 @@ class TestRequestScopeAccess:
                 assert request.config
             def test_func():
                 pass
-        """
+        """  # noqa: UP031 (python syntax issues)
             % (scope, ok.split(), error.split())
         )
         reprec = pytester.inline_run("-l")
@@ -3283,7 +3315,7 @@ class TestRequestScopeAccess:
                 assert request.config
             def test_func(arg):
                 pass
-        """
+        """  # noqa: UP031 (python syntax issues)
             % (scope, ok.split(), error.split())
         )
         reprec = pytester.inline_run()
@@ -4009,7 +4041,8 @@ class TestScopeOrdering:
         """
         )
         items, _ = pytester.inline_genitems()
-        request = FixtureRequest(items[0], _ispytest=True)
+        assert isinstance(items[0], Function)
+        request = TopRequest(items[0], _ispytest=True)
         assert request.fixturenames == "m1 f1".split()
 
     def test_func_closure_with_native_fixtures(
@@ -4057,7 +4090,8 @@ class TestScopeOrdering:
         """
         )
         items, _ = pytester.inline_genitems()
-        request = FixtureRequest(items[0], _ispytest=True)
+        assert isinstance(items[0], Function)
+        request = TopRequest(items[0], _ispytest=True)
         # order of fixtures based on their scope and position in the parameter list
         assert (
             request.fixturenames
@@ -4084,7 +4118,8 @@ class TestScopeOrdering:
         """
         )
         items, _ = pytester.inline_genitems()
-        request = FixtureRequest(items[0], _ispytest=True)
+        assert isinstance(items[0], Function)
+        request = TopRequest(items[0], _ispytest=True)
         assert request.fixturenames == "m1 f1".split()
 
     def test_func_closure_scopes_reordered(self, pytester: Pytester) -> None:
@@ -4117,7 +4152,8 @@ class TestScopeOrdering:
         """
         )
         items, _ = pytester.inline_genitems()
-        request = FixtureRequest(items[0], _ispytest=True)
+        assert isinstance(items[0], Function)
+        request = TopRequest(items[0], _ispytest=True)
         assert request.fixturenames == "s1 m1 c1 f2 f1".split()
 
     def test_func_closure_same_scope_closer_root_first(
@@ -4159,7 +4195,8 @@ class TestScopeOrdering:
             }
         )
         items, _ = pytester.inline_genitems()
-        request = FixtureRequest(items[0], _ispytest=True)
+        assert isinstance(items[0], Function)
+        request = TopRequest(items[0], _ispytest=True)
         assert request.fixturenames == "p_sub m_conf m_sub m_test f1".split()
 
     def test_func_closure_all_scopes_complex(self, pytester: Pytester) -> None:
@@ -4203,7 +4240,8 @@ class TestScopeOrdering:
         """
         )
         items, _ = pytester.inline_genitems()
-        request = FixtureRequest(items[0], _ispytest=True)
+        assert isinstance(items[0], Function)
+        request = TopRequest(items[0], _ispytest=True)
         assert request.fixturenames == "s1 p1 m1 m2 c1 f2 f1".split()
 
     def test_multiple_packages(self, pytester: Pytester) -> None:
@@ -4324,6 +4362,27 @@ def test_call_fixture_function_error():
         assert fix() == 1
 
 
+def test_fixture_double_decorator(pytester: Pytester) -> None:
+    """Check if an error is raised when using @pytest.fixture twice."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.fixture
+        @pytest.fixture
+        def fixt():
+            pass
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines(
+        [
+            "E * ValueError: @pytest.fixture is being applied more than once to the same function 'fixt'"
+        ]
+    )
+
+
 def test_fixture_param_shadowing(pytester: Pytester) -> None:
     """Parametrized arguments would be shadowed if a fixture with the same name also exists (#5036)"""
     pytester.makepyfile(
@@ -4373,7 +4432,7 @@ def test_fixture_named_request(pytester: Pytester) -> None:
     result.stdout.fnmatch_lines(
         [
             "*'request' is a reserved word for fixtures, use another name:",
-            "  *test_fixture_named_request.py:5",
+            "  *test_fixture_named_request.py:6",
         ]
     )
 
@@ -4502,3 +4561,10 @@ def test_yield_fixture_with_no_value(pytester: Pytester) -> None:
     result.assert_outcomes(errors=1)
     result.stdout.fnmatch_lines([expected])
     assert result.ret == ExitCode.TESTS_FAILED
+
+
+def test_deduplicate_names() -> None:
+    items = deduplicate_names("abacd")
+    assert items == ("a", "b", "c", "d")
+    items = deduplicate_names((*items, "g", "f", "g", "e", "b"))
+    assert items == ("a", "b", "c", "d", "g", "f", "e")
