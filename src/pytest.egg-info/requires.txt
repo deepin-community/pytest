@@ -1,23 +1,19 @@
 iniconfig
 packaging
-pluggy<2.0,>=0.12
+pluggy<2.0,>=1.5
 
 [:python_version < "3.11"]
 exceptiongroup>=1.0.0rc8
-tomli>=1.0.0
-
-[:python_version < "3.8"]
-importlib-metadata>=0.12
+tomli>=1
 
 [:sys_platform == "win32"]
 colorama
 
-[testing]
+[dev]
 argcomplete
-attrs>=19.2.0
+attrs>=19.2
 hypothesis>=3.56
 mock
-nose
 pygments>=2.7.2
 requests
 setuptools

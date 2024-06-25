@@ -17,7 +17,8 @@ in the current directory and its subdirectories. More generally, pytest follows 
 Specifying which tests to run
 ------------------------------
 
-Pytest supports several ways to run and select tests from the command-line.
+Pytest supports several ways to run and select tests from the command-line or from a file
+(see below for :ref:`reading arguments from file <args-from-file>`).
 
 **Run tests in a module**
 
@@ -44,23 +45,34 @@ Use ``""`` instead of ``''`` in expression when running this on Windows
 
 .. _nodeids:
 
-**Run tests by node ids**
+**Run tests by collection arguments**
 
-Each collected test is assigned a unique ``nodeid`` which consist of the module filename followed
-by specifiers like class names, function names and parameters from parametrization, separated by ``::`` characters.
+Pass the module filename relative to the working directory, followed by specifiers like the class name and function name
+separated by ``::`` characters, and parameters from parameterization enclosed in ``[]``.
 
 To run a specific test within a module:
 
 .. code-block:: bash
 
-    pytest test_mod.py::test_func
+    pytest tests/test_mod.py::test_func
 
-
-Another example specifying a test method in the command line:
+To run all tests in a class:
 
 .. code-block:: bash
 
-    pytest test_mod.py::TestClass::test_method
+    pytest tests/test_mod.py::TestClass
+
+Specifying a specific test method:
+
+.. code-block:: bash
+
+    pytest tests/test_mod.py::TestClass::test_method
+
+Specifying a specific parametrization of a test:
+
+.. code-block:: bash
+
+    pytest tests/test_mod.py::test_func[x1,y2]
 
 **Run tests by marker expressions**
 
@@ -80,6 +92,28 @@ For more information see :ref:`marks <mark>`.
 
 This will import ``pkg.testing`` and use its filesystem location to find and run tests from.
 
+.. _args-from-file:
+
+**Read arguments from file**
+
+.. versionadded:: 8.2
+
+All of the above can be read from a file using the ``@`` prefix:
+
+.. code-block:: bash
+
+    pytest @tests_to_run.txt
+
+where ``tests_to_run.txt`` contains an entry per line, e.g.:
+
+.. code-block:: text
+
+    tests/test_file.py
+    tests/test_mod.py::test_func[x1,y2]
+    tests/test_mod.py::TestClass
+    -m slow
+
+This file can also be generated using ``pytest --collect-only -q`` and modified as needed.
 
 Getting help on version, option names, environment variables
 --------------------------------------------------------------

@@ -1,20 +1,22 @@
 From: =?utf-8?b?T25kxZllaiBOb3bDvQ==?= <onovy@debian.org>
-Date: Sun, 3 Nov 2019 15:47:11 -0800
-Subject: Disable some of Sphinx extensions which we don't have in Debian
+Date: Fri, 15 Jun 2018 13:43:56 +0200
+Subject: Disable Sphinx extensions
+
+Remove extensions which we do not have in Debian
 
 Forwarded: not-needed
 ---
- doc/en/conf.py | 2 --
- 1 file changed, 2 deletions(-)
+ doc/en/conf.py | 3 ---
+ 1 file changed, 3 deletions(-)
 
 diff --git a/doc/en/conf.py b/doc/en/conf.py
-index 911bdfe..534f7b7 100644
+index 8940c77..3224502 100644
 --- a/doc/en/conf.py
 +++ b/doc/en/conf.py
-@@ -67,14 +67,12 @@ latex_elements = {
+@@ -65,15 +65,12 @@ latex_elements = {
+ # Add any Sphinx extension module names here, as strings. They can be extensions
  # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
  extensions = [
-     "pallets_sphinx_themes",
 -    "pygments_pytest",
      "sphinx.ext.autodoc",
      "sphinx.ext.autosummary",
@@ -23,6 +25,7 @@ index 911bdfe..534f7b7 100644
      "sphinx.ext.todo",
      "sphinx.ext.viewcode",
 -    "sphinx_removed_in",
+-    "sphinxcontrib_trio",
  ]
  
  # Building PDF docs on readthedocs requires inkscape for svg to pdf
