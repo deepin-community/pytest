@@ -1,15 +1,16 @@
+# mypy: allow-untyped-defs
+from functools import partial
 import inspect
 import os
+from pathlib import Path
 import sys
 import types
-from functools import partial
-from pathlib import Path
 from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Type
+import warnings
 
-import pytest
 from _pytest import outcomes
 from _pytest import reports
 from _pytest import runner
@@ -19,8 +20,10 @@ from _pytest.config import ExitCode
 from _pytest.monkeypatch import MonkeyPatch
 from _pytest.outcomes import OutcomeException
 from _pytest.pytester import Pytester
+import pytest
 
-if sys.version_info[:2] < (3, 11):
+
+if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
 
 
@@ -406,7 +409,7 @@ class BaseFunctionalTests:
         # assert rep.outcome.when == "setup"
         # assert rep.outcome.where.lineno == 3
         # assert rep.outcome.where.path.basename == "test_func.py"
-        # assert instanace(rep.failed.failurerepr, PythonFailureRepr)
+        # assert isinstance(rep.failed.failurerepr, PythonFailureRepr)
 
     def test_systemexit_does_not_bail_out(self, pytester: Pytester) -> None:
         try:
@@ -542,10 +545,10 @@ def test_runtest_in_module_ordering(pytester: Pytester) -> None:
             @pytest.fixture
             def mylist(self, request):
                 return request.function.mylist
-            @pytest.hookimpl(hookwrapper=True)
+            @pytest.hookimpl(wrapper=True)
             def pytest_runtest_call(self, item):
                 try:
-                    (yield).get_result()
+                    yield
                 except ValueError:
                     pass
             def test_hello1(self, mylist):
@@ -760,6 +763,73 @@ def test_importorskip_imports_last_module_part() -> None:
     assert os.path == ospath
 
 
+class TestImportOrSkipExcType:
+    """Tests for #11523."""
+
+    def test_no_warning(self) -> None:
+        # An attempt on a module which does not exist will raise ModuleNotFoundError, so it will
+        # be skipped normally and no warning will be issued.
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+
+            with pytest.raises(pytest.skip.Exception):
+                pytest.importorskip("TestImportOrSkipExcType_test_no_warning")
+
+        assert captured == []
+
+    def test_import_error_with_warning(self, pytester: Pytester) -> None:
+        # Create a module which exists and can be imported, however it raises
+        # ImportError due to some other problem. In this case we will issue a warning
+        # about the future behavior change.
+        fn = pytester.makepyfile("raise ImportError('some specific problem')")
+        pytester.syspathinsert()
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+
+            with pytest.raises(pytest.skip.Exception):
+                pytest.importorskip(fn.stem)
+
+        [warning] = captured
+        assert warning.category is pytest.PytestDeprecationWarning
+
+    def test_import_error_suppress_warning(self, pytester: Pytester) -> None:
+        # Same as test_import_error_with_warning, but we can suppress the warning
+        # by passing ImportError as exc_type.
+        fn = pytester.makepyfile("raise ImportError('some specific problem')")
+        pytester.syspathinsert()
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+
+            with pytest.raises(pytest.skip.Exception):
+                pytest.importorskip(fn.stem, exc_type=ImportError)
+
+        assert captured == []
+
+    def test_warning_integration(self, pytester: Pytester) -> None:
+        pytester.makepyfile(
+            """
+            import pytest
+            def test_foo():
+                pytest.importorskip("warning_integration_module")
+            """
+        )
+        pytester.makepyfile(
+            warning_integration_module="""
+                raise ImportError("required library foobar not compiled properly")
+            """
+        )
+        result = pytester.runpytest()
+        result.stdout.fnmatch_lines(
+            [
+                "*Module 'warning_integration_module' was found, but when imported by pytest it raised:",
+                "*      ImportError('required library foobar not compiled properly')",
+                "*1 skipped, 1 warning*",
+            ]
+        )
+
+
 def test_importorskip_dev_module(monkeypatch) -> None:
     try:
         mod = types.ModuleType("mockmodule")
@@ -826,12 +896,12 @@ def test_unicode_in_longrepr(pytester: Pytester) -> None:
     pytester.makeconftest(
         """\
         import pytest
-        @pytest.hookimpl(hookwrapper=True)
+        @pytest.hookimpl(wrapper=True)
         def pytest_runtest_makereport():
-            outcome = yield
-            rep = outcome.get_result()
+            rep = yield
             if rep.when == "call":
                 rep.longrepr = 'ä'
+            return rep
         """
     )
     pytester.makepyfile(
@@ -924,6 +994,9 @@ def test_store_except_info_on_error() -> None:
     # Check that exception info is stored on sys
     assert sys.last_type is IndexError
     assert isinstance(sys.last_value, IndexError)
+    if sys.version_info >= (3, 12, 0):
+        assert isinstance(sys.last_exc, IndexError)  # type: ignore[attr-defined]
+
     assert sys.last_value.args[0] == "TEST"
     assert sys.last_traceback
 
@@ -932,6 +1005,8 @@ def test_store_except_info_on_error() -> None:
     runner.pytest_runtest_call(ItemMightRaise())  # type: ignore[arg-type]
     assert not hasattr(sys, "last_type")
     assert not hasattr(sys, "last_value")
+    if sys.version_info >= (3, 12, 0):
+        assert not hasattr(sys, "last_exc")
     assert not hasattr(sys, "last_traceback")
 
 
@@ -1006,7 +1081,7 @@ class TestReportContents:
         )
         rec = pytester.inline_run()
         calls = rec.getcalls("pytest_collectreport")
-        _, call = calls
+        _, call, _ = calls
         assert isinstance(call.report.longrepr, tuple)
         assert "Skipped" in call.report.longreprtext
 
@@ -1087,3 +1162,20 @@ def test_outcome_exception_bad_msg() -> None:
     with pytest.raises(TypeError) as excinfo:
         OutcomeException(func)  # type: ignore
     assert str(excinfo.value) == expected
+
+
+def test_pytest_version_env_var(pytester: Pytester, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("PYTEST_VERSION", "old version")
+    pytester.makepyfile(
+        """
+        import pytest
+        import os
+
+
+        def test():
+            assert os.environ.get("PYTEST_VERSION") == pytest.__version__
+    """
+    )
+    result = pytester.runpytest_inprocess()
+    assert result.ret == ExitCode.OK
+    assert os.environ["PYTEST_VERSION"] == "old version"

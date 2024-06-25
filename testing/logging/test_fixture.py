@@ -3,9 +3,10 @@
 import logging
 from typing import Iterator
 
-import pytest
 from _pytest.logging import caplog_records_key
 from _pytest.pytester import Pytester
+import pytest
+
 
 logger = logging.getLogger(__name__)
 sublogger = logging.getLogger(__name__ + ".baz")
@@ -116,7 +117,7 @@ def test_change_disabled_level_undo(pytester: Pytester) -> None:
     result.stdout.no_fnmatch_line("*log from test2*")
 
 
-def test_change_level_undos_handler_level(pytester: Pytester) -> None:
+def test_change_level_undoes_handler_level(pytester: Pytester) -> None:
     """Ensure that 'set_level' is undone after the end of the test (handler).
 
     Issue #7569. Tests the handler level specifically.
@@ -144,7 +145,7 @@ def test_change_level_undos_handler_level(pytester: Pytester) -> None:
     result.assert_outcomes(passed=3)
 
 
-def test_with_statement(caplog: pytest.LogCaptureFixture) -> None:
+def test_with_statement_at_level(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO):
         logger.debug("handler DEBUG level")
         logger.info("handler INFO level")
@@ -159,7 +160,9 @@ def test_with_statement(caplog: pytest.LogCaptureFixture) -> None:
     assert "CRITICAL" in caplog.text
 
 
-def test_with_statement_logging_disabled(caplog: pytest.LogCaptureFixture) -> None:
+def test_with_statement_at_level_logging_disabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     logging.disable(logging.CRITICAL)
     assert logging.root.manager.disable == logging.CRITICAL
     with caplog.at_level(logging.WARNING):
@@ -183,6 +186,22 @@ def test_with_statement_logging_disabled(caplog: pytest.LogCaptureFixture) -> No
     assert "SUB_WARNING" not in caplog.text
     assert "SUB_CRITICAL" in caplog.text
     assert logging.root.manager.disable == logging.CRITICAL
+
+
+def test_with_statement_filtering(caplog: pytest.LogCaptureFixture) -> None:
+    class TestFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            record.msg = "filtered handler call"
+            return True
+
+    with caplog.at_level(logging.INFO):
+        with caplog.filtering(TestFilter()):
+            logger.info("handler call")
+        logger.info("handler call")
+
+    filtered_tuple, unfiltered_tuple = caplog.record_tuples
+    assert filtered_tuple == ("test_fixture", 20, "filtered handler call")
+    assert unfiltered_tuple == ("test_fixture", 20, "handler call")
 
 
 @pytest.mark.parametrize(
@@ -283,7 +302,15 @@ def logging_during_setup_and_teardown(
     assert [x.message for x in caplog.get_records("teardown")] == ["a_teardown_log"]
 
 
-def test_caplog_captures_for_all_stages(
+def private_assert_caplog_records_is_setup_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # This reaches into private API, don't use this type of thing in real tests!
+    caplog_records = caplog._item.stash[caplog_records_key]
+    assert set(caplog_records) == {"setup", "call"}
+
+
+def test_captures_for_all_stages(
     caplog: pytest.LogCaptureFixture, logging_during_setup_and_teardown: None
 ) -> None:
     assert not caplog.records
@@ -293,9 +320,7 @@ def test_caplog_captures_for_all_stages(
 
     assert [x.message for x in caplog.get_records("setup")] == ["a_setup_log"]
 
-    # This reaches into private API, don't use this type of thing in real tests!
-    caplog_records = caplog._item.stash[caplog_records_key]
-    assert set(caplog_records) == {"setup", "call"}
+    private_assert_caplog_records_is_setup_call(caplog)
 
 
 def test_clear_for_call_stage(
@@ -304,21 +329,18 @@ def test_clear_for_call_stage(
     logger.info("a_call_log")
     assert [x.message for x in caplog.get_records("call")] == ["a_call_log"]
     assert [x.message for x in caplog.get_records("setup")] == ["a_setup_log"]
-    caplog_records = caplog._item.stash[caplog_records_key]
-    assert set(caplog_records) == {"setup", "call"}
+    private_assert_caplog_records_is_setup_call(caplog)
 
     caplog.clear()
 
     assert caplog.get_records("call") == []
     assert [x.message for x in caplog.get_records("setup")] == ["a_setup_log"]
-    caplog_records = caplog._item.stash[caplog_records_key]
-    assert set(caplog_records) == {"setup", "call"}
+    private_assert_caplog_records_is_setup_call(caplog)
 
     logging.info("a_call_log_after_clear")
     assert [x.message for x in caplog.get_records("call")] == ["a_call_log_after_clear"]
     assert [x.message for x in caplog.get_records("setup")] == ["a_setup_log"]
-    caplog_records = caplog._item.stash[caplog_records_key]
-    assert set(caplog_records) == {"setup", "call"}
+    private_assert_caplog_records_is_setup_call(caplog)
 
 
 def test_ini_controls_global_log_level(pytester: Pytester) -> None:
@@ -344,11 +366,11 @@ def test_ini_controls_global_log_level(pytester: Pytester) -> None:
     )
 
     result = pytester.runpytest()
-    # make sure that that we get a '0' exit code for the testsuite
+    # make sure that we get a '0' exit code for the testsuite
     assert result.ret == 0
 
 
-def test_caplog_can_override_global_log_level(pytester: Pytester) -> None:
+def test_can_override_global_log_level(pytester: Pytester) -> None:
     pytester.makepyfile(
         """
         import pytest
@@ -387,7 +409,7 @@ def test_caplog_can_override_global_log_level(pytester: Pytester) -> None:
     assert result.ret == 0
 
 
-def test_caplog_captures_despite_exception(pytester: Pytester) -> None:
+def test_captures_despite_exception(pytester: Pytester) -> None:
     pytester.makepyfile(
         """
         import pytest

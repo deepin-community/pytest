@@ -1,15 +1,12 @@
-import os
+# mypy: allow-untyped-defs
 import sys
 from typing import List
 
 import _pytest._code
-import pytest
 from _pytest.debugging import _validate_usepdb_cls
 from _pytest.monkeypatch import MonkeyPatch
 from _pytest.pytester import Pytester
-
-
-_ENVIRON_PYTHONBREAKPOINT = os.environ.get("PYTHONBREAKPOINT", "")
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +29,7 @@ def runpdb_and_get_stdout(pytester: Pytester, source: str):
 
 def runpdb_and_get_report(pytester: Pytester, source: str):
     result = runpdb(pytester, source)
-    reports = result.reprec.getreports("pytest_runtest_logreport")  # type: ignore[attr-defined]
+    reports = result.reprec.getreports("pytest_runtest_logreport")
     assert len(reports) == 3, reports  # setup/call/teardown
     return reports[1]
 
@@ -372,7 +369,7 @@ class TestPDB:
         result = pytester.runpytest_subprocess("--pdb", ".")
         result.stdout.fnmatch_lines(["-> import unknown"])
 
-    @pytest.mark.xfail(reason="#10042")
+    @pytest.mark.xfail(reason="#10042", strict=False)
     def test_pdb_interaction_capturing_simple(self, pytester: Pytester) -> None:
         p1 = pytester.makepyfile(
             """
@@ -541,7 +538,7 @@ class TestPDB:
         assert "BdbQuit" not in rest
         assert "UNEXPECTED EXCEPTION" not in rest
 
-    @pytest.mark.xfail(reason="#10042")
+    @pytest.mark.xfail(reason="#10042", strict=False)
     def test_pdb_interaction_capturing_twice(self, pytester: Pytester) -> None:
         p1 = pytester.makepyfile(
             """
@@ -577,7 +574,7 @@ class TestPDB:
         assert "1 failed" in rest
         self.flush(child)
 
-    @pytest.mark.xfail(reason="#10042")
+    @pytest.mark.xfail(reason="#10042", strict=False)
     def test_pdb_with_injected_do_debug(self, pytester: Pytester) -> None:
         """Simulates pdbpp, which injects Pdb into do_debug, and uses
         self.__class__ in do_continue.
@@ -958,7 +955,10 @@ class TestDebuggingBreakpoints:
         result = pytester.runpytest_subprocess(*args)
         result.stdout.fnmatch_lines(["*1 passed in *"])
 
-    def test_pdb_custom_cls(self, pytester: Pytester, custom_debugger_hook) -> None:
+    def test_pdb_custom_cls(
+        self, pytester: Pytester, custom_debugger_hook, monkeypatch: MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("PYTHONBREAKPOINT", raising=False)
         p1 = pytester.makepyfile(
             """
             def test_nothing():
@@ -1002,11 +1002,10 @@ class TestDebuggingBreakpoints:
         result = pytester.runpytest_subprocess(*args)
         result.stdout.fnmatch_lines(["*1 passed in *"])
 
-    @pytest.mark.skipif(
-        not _ENVIRON_PYTHONBREAKPOINT == "",
-        reason="Requires breakpoint() default value",
-    )
-    def test_sys_breakpoint_interception(self, pytester: Pytester) -> None:
+    def test_sys_breakpoint_interception(
+        self, pytester: Pytester, monkeypatch: MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("PYTHONBREAKPOINT", raising=False)
         p1 = pytester.makepyfile(
             """
             def test_1():
@@ -1022,7 +1021,7 @@ class TestDebuggingBreakpoints:
         assert "reading from stdin while output" not in rest
         TestPDB.flush(child)
 
-    @pytest.mark.xfail(reason="#10042")
+    @pytest.mark.xfail(reason="#10042", strict=False)
     def test_pdb_not_altered(self, pytester: Pytester) -> None:
         p1 = pytester.makepyfile(
             """
@@ -1123,7 +1122,7 @@ class TestTraceOption:
 
 
 def test_trace_after_runpytest(pytester: Pytester) -> None:
-    """Test that debugging's pytest_configure is re-entrant."""
+    """Test that debugging's pytest_configure is reentrant."""
     p1 = pytester.makepyfile(
         """
         from _pytest.debugging import pytestPDB
@@ -1154,7 +1153,7 @@ def test_trace_after_runpytest(pytester: Pytester) -> None:
 
 
 def test_quit_with_swallowed_SystemExit(pytester: Pytester) -> None:
-    """Test that debugging's pytest_configure is re-entrant."""
+    """Test that debugging's pytest_configure is reentrant."""
     p1 = pytester.makepyfile(
         """
         def call_pdb_set_trace():
@@ -1182,11 +1181,11 @@ def test_quit_with_swallowed_SystemExit(pytester: Pytester) -> None:
 
 
 @pytest.mark.parametrize("fixture", ("capfd", "capsys"))
-@pytest.mark.xfail(reason="#10042")
+@pytest.mark.xfail(reason="#10042", strict=False)
 def test_pdb_suspends_fixture_capturing(pytester: Pytester, fixture: str) -> None:
     """Using "-s" with pytest should suspend/resume fixture capturing."""
     p1 = pytester.makepyfile(
-        """
+        f"""
         def test_inner({fixture}):
             import sys
 
@@ -1201,9 +1200,7 @@ def test_pdb_suspends_fixture_capturing(pytester: Pytester, fixture: str) -> Non
             out, err = {fixture}.readouterr()
             assert out =="out_inner_before\\nout_inner_after\\n"
             assert err =="err_inner_before\\nerr_inner_after\\n"
-        """.format(
-            fixture=fixture
-        )
+        """
     )
 
     child = pytester.spawn_pytest(str(p1) + " -s")
@@ -1276,7 +1273,6 @@ def test_pdbcls_via_local_module(pytester: Pytester) -> None:
 
 def test_raises_bdbquit_with_eoferror(pytester: Pytester) -> None:
     """It is not guaranteed that DontReadFromInput's read is called."""
-
     p1 = pytester.makepyfile(
         """
         def input_without_read(*args, **kwargs):

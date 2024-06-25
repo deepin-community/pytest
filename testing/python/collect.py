@@ -1,3 +1,4 @@
+# mypy: allow-untyped-defs
 import os
 import sys
 import textwrap
@@ -5,7 +6,6 @@ from typing import Any
 from typing import Dict
 
 import _pytest._code
-import pytest
 from _pytest.config import ExitCode
 from _pytest.main import Session
 from _pytest.monkeypatch import MonkeyPatch
@@ -13,6 +13,7 @@ from _pytest.nodes import Collector
 from _pytest.pytester import Pytester
 from _pytest.python import Class
 from _pytest.python import Function
+import pytest
 
 
 class TestModule:
@@ -53,13 +54,11 @@ class TestModule:
         monkeypatch.syspath_prepend(str(root1))
         p.write_text(
             textwrap.dedent(
-                """\
+                f"""\
                 import x456
                 def test():
-                    assert x456.__file__.startswith({!r})
-                """.format(
-                    str(root2)
-                )
+                    assert x456.__file__.startswith({str(root2)!r})
+                """
             ),
             encoding="utf-8",
         )
@@ -776,13 +775,13 @@ class TestSorting:
         pytester.makepyfile(
             """\
             class Test1:
-                def test_foo(): pass
-                def test_bar(): pass
+                def test_foo(self): pass
+                def test_bar(self): pass
             class Test2:
-                def test_foo(): pass
+                def test_foo(self): pass
                 test_bar = Test1.test_bar
             class Test3(Test2):
-                def test_baz(): pass
+                def test_baz(self): pass
             """
         )
         result = pytester.runpytest("--collect-only")
@@ -827,11 +826,11 @@ class TestConftestCustomization:
             textwrap.dedent(
                 """\
                 import pytest
-                @pytest.hookimpl(hookwrapper=True)
+                @pytest.hookimpl(wrapper=True)
                 def pytest_pycollect_makemodule():
-                    outcome = yield
-                    mod = outcome.get_result()
+                    mod = yield
                     mod.obj.hello = "world"
+                    return mod
                 """
             ),
             encoding="utf-8",
@@ -855,14 +854,13 @@ class TestConftestCustomization:
             textwrap.dedent(
                 """\
                 import pytest
-                @pytest.hookimpl(hookwrapper=True)
+                @pytest.hookimpl(wrapper=True)
                 def pytest_pycollect_makeitem():
-                    outcome = yield
-                    if outcome.excinfo is None:
-                        result = outcome.get_result()
-                        if result:
-                            for func in result:
-                                func._some123 = "world"
+                    result = yield
+                    if result:
+                        for func in result:
+                            func._some123 = "world"
+                    return result
                 """
             ),
             encoding="utf-8",
@@ -1211,7 +1209,7 @@ class TestReportInfo:
         classcol = pytester.collect_by_name(modcol, "TestClass")
         assert isinstance(classcol, Class)
         path, lineno, msg = classcol.reportinfo()
-        func = list(classcol.collect())[0]
+        func = next(iter(classcol.collect()))
         assert isinstance(func, Function)
         path, lineno, msg = func.reportinfo()
 
@@ -1420,10 +1418,15 @@ def test_package_collection_infinite_recursion(pytester: Pytester) -> None:
 
 
 def test_package_collection_init_given_as_argument(pytester: Pytester) -> None:
-    """Regression test for #3749"""
+    """Regression test for #3749, #8976, #9263, #9313.
+
+    Specifying an __init__.py file directly should collect only the __init__.py
+    Module, not the entire package.
+    """
     p = pytester.copy_example("collect/package_init_given_as_arg")
-    result = pytester.runpytest(p / "pkg" / "__init__.py")
-    result.stdout.fnmatch_lines(["*1 passed*"])
+    items, hookrecorder = pytester.inline_genitems(p / "pkg" / "__init__.py")
+    assert len(items) == 1
+    assert items[0].name == "test_init"
 
 
 def test_package_with_modules(pytester: Pytester) -> None:
@@ -1510,3 +1513,108 @@ def test_package_ordering(pytester: Pytester) -> None:
     # Execute from .
     result = pytester.runpytest("-v", "-s")
     result.assert_outcomes(passed=3)
+
+
+def test_collection_hierarchy(pytester: Pytester) -> None:
+    """A general test checking that a filesystem hierarchy is collected as
+    expected in various scenarios.
+
+    top/
+    ├── aaa
+    │   ├── pkg
+    │   │   ├── __init__.py
+    │   │   └── test_pkg.py
+    │   └── test_aaa.py
+    ├── test_a.py
+    ├── test_b
+    │   ├── __init__.py
+    │   └── test_b.py
+    ├── test_c.py
+    └── zzz
+        ├── dir
+        │   └── test_dir.py
+        ├── __init__.py
+        └── test_zzz.py
+    """
+    pytester.makepyfile(
+        **{
+            "top/aaa/test_aaa.py": "def test_it(): pass",
+            "top/aaa/pkg/__init__.py": "",
+            "top/aaa/pkg/test_pkg.py": "def test_it(): pass",
+            "top/test_a.py": "def test_it(): pass",
+            "top/test_b/__init__.py": "",
+            "top/test_b/test_b.py": "def test_it(): pass",
+            "top/test_c.py": "def test_it(): pass",
+            "top/zzz/__init__.py": "",
+            "top/zzz/test_zzz.py": "def test_it(): pass",
+            "top/zzz/dir/test_dir.py": "def test_it(): pass",
+        }
+    )
+
+    full = [
+        "<Dir test_collection_hierarchy*>",
+        "  <Dir top>",
+        "    <Dir aaa>",
+        "      <Package pkg>",
+        "        <Module test_pkg.py>",
+        "          <Function test_it>",
+        "      <Module test_aaa.py>",
+        "        <Function test_it>",
+        "    <Module test_a.py>",
+        "      <Function test_it>",
+        "    <Package test_b>",
+        "      <Module test_b.py>",
+        "        <Function test_it>",
+        "    <Module test_c.py>",
+        "      <Function test_it>",
+        "    <Package zzz>",
+        "      <Dir dir>",
+        "        <Module test_dir.py>",
+        "          <Function test_it>",
+        "      <Module test_zzz.py>",
+        "        <Function test_it>",
+    ]
+    result = pytester.runpytest("--collect-only")
+    result.stdout.fnmatch_lines(full, consecutive=True)
+    result = pytester.runpytest("top", "--collect-only")
+    result.stdout.fnmatch_lines(full, consecutive=True)
+    result = pytester.runpytest("top", "top", "--collect-only")
+    result.stdout.fnmatch_lines(full, consecutive=True)
+
+    result = pytester.runpytest(
+        "top/aaa", "top/aaa/pkg", "--collect-only", "--keep-duplicates"
+    )
+    result.stdout.fnmatch_lines(
+        [
+            "<Dir test_collection_hierarchy*>",
+            "  <Dir top>",
+            "    <Dir aaa>",
+            "      <Package pkg>",
+            "        <Module test_pkg.py>",
+            "          <Function test_it>",
+            "      <Module test_aaa.py>",
+            "        <Function test_it>",
+            "      <Package pkg>",
+            "        <Module test_pkg.py>",
+            "          <Function test_it>",
+        ],
+        consecutive=True,
+    )
+
+    result = pytester.runpytest(
+        "top/aaa/pkg", "top/aaa", "--collect-only", "--keep-duplicates"
+    )
+    result.stdout.fnmatch_lines(
+        [
+            "<Dir test_collection_hierarchy*>",
+            "  <Dir top>",
+            "    <Dir aaa>",
+            "      <Package pkg>",
+            "        <Module test_pkg.py>",
+            "          <Function test_it>",
+            "          <Function test_it>",
+            "      <Module test_aaa.py>",
+            "        <Function test_it>",
+        ],
+        consecutive=True,
+    )

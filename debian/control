@@ -3,12 +3,12 @@ Section: python
 Priority: optional
 Maintainer: Debian Python Team <team+python@tracker.debian.org>
 Uploaders:
- Ondřej Nový <onovy@debian.org>,
  Timo Röhling <roehling@debian.org>,
 Build-Depends:
  debhelper-compat (= 13),
  dh-sequence-python3,
  dh-sequence-sphinxdoc <!nodoc>,
+ furo <!nodoc>,
  lsof <!nocheck>,
  pybuild-plugin-pyproject,
  python3-all,
@@ -16,17 +16,15 @@ Build-Depends:
  python3-attr <!nocheck>,
  python3-hypothesis <!nocheck>,
  python3-iniconfig,
- python3-mock <!nocheck>,
  python3-numpy <!nocheck>,
  python3-packaging,
  python3-pallets-sphinx-themes <!nodoc>,
- python3-pluggy (>= 0.12),
+ python3-pluggy (>= 1.4.0),
  python3-pygments <!nocheck>,
  python3-requests <!nocheck>,
  python3-setuptools,
  python3-setuptools-scm,
  python3-sphinx <!nodoc>,
- python3-twisted <!nocheck>,
  python3-xmlschema <!nocheck>,
 Standards-Version: 4.6.2
 Homepage: https://pytest.org/
@@ -62,6 +60,8 @@ Breaks:
  python3-pytest-mock (<< 1.10.4-1~),
  python3-pytest-xdist (<< 2.2.0-1~),
  python3-pytest-xvfb (<< 1.2.0-1~),
+ python3-mypy (<< 1.9.0-3~),
+ python3-astropy (<< 6.0.1-1~)
 Description: Simple, powerful testing in Python3
  This testing tool has for objective to allow the developers to limit the
  boilerplate code around the tests, promoting the use of built-in

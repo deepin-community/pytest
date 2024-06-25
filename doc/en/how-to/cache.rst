@@ -86,7 +86,7 @@ If you then run it with ``--lf``:
 
     $ pytest --lf
     =========================== test session starts ============================
-    platform linux -- Python 3.x.y, pytest-7.x.y, pluggy-1.x.y
+    platform linux -- Python 3.x.y, pytest-8.x.y, pluggy-1.x.y
     rootdir: /home/sweet/project
     collected 2 items
     run-last-failure: rerun previous 2 failures
@@ -132,7 +132,7 @@ of ``FF`` and dots):
 
     $ pytest --ff
     =========================== test session starts ============================
-    platform linux -- Python 3.x.y, pytest-7.x.y, pluggy-1.x.y
+    platform linux -- Python 3.x.y, pytest-8.x.y, pluggy-1.x.y
     rootdir: /home/sweet/project
     collected 50 items
     run-last-failure: rerun previous 2 failures first
@@ -213,12 +213,12 @@ across pytest invocations:
 
 
     @pytest.fixture
-    def mydata(request):
-        val = request.config.cache.get("example/value", None)
+    def mydata(pytestconfig):
+        val = pytestconfig.cache.get("example/value", None)
         if val is None:
             expensive_computation()
             val = 42
-            request.config.cache.set("example/value", val)
+            pytestconfig.cache.set("example/value", val)
         return val
 
 
@@ -281,7 +281,7 @@ You can always peek at the content of the cache using the
 
     $ pytest --cache-show
     =========================== test session starts ============================
-    platform linux -- Python 3.x.y, pytest-7.x.y, pluggy-1.x.y
+    platform linux -- Python 3.x.y, pytest-8.x.y, pluggy-1.x.y
     rootdir: /home/sweet/project
     cachedir: /home/sweet/project/.pytest_cache
     --------------------------- cache values for '*' ---------------------------
@@ -303,7 +303,7 @@ filtering:
 
     $ pytest --cache-show example/*
     =========================== test session starts ============================
-    platform linux -- Python 3.x.y, pytest-7.x.y, pluggy-1.x.y
+    platform linux -- Python 3.x.y, pytest-8.x.y, pluggy-1.x.y
     rootdir: /home/sweet/project
     cachedir: /home/sweet/project/.pytest_cache
     ----------------------- cache values for 'example/*' -----------------------
