@@ -1,0 +1,24 @@
+From: Chris Lamb <lamby@debian.org>
+Date: Wed, 31 Jul 2024 01:53:59 +0200
+Subject: Reproducible build
+
+Make the build reproducible
+
+Last-Update: 2024-07-29
+---
+ doc/en/conf.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/doc/en/conf.py b/doc/en/conf.py
+index 0e33bcf..580f810 100644
+--- a/doc/en/conf.py
++++ b/doc/en/conf.py
+@@ -254,7 +254,7 @@ issues_github_path = "pytest-dev/pytest"
+ # https://docs.readthedocs.io/en/stable/reference/environment-variables.html#environment-variable-reference
+ # https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#including-content-based-on-tags
+ 
+-IS_RELEASE_ON_RTD = (
++IS_RELEASE_ON_RTD = True or (
+     os.getenv("READTHEDOCS", "False") == "True"
+     and os.environ["READTHEDOCS_VERSION_TYPE"] == "tag"
+ )

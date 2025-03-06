@@ -4,43 +4,32 @@ Subject: Use local intersphinx mappings
 
 Forwarded: not-needed
 ---
- doc/en/conf.py | 18 ++++++++++++++++++
- 1 file changed, 18 insertions(+)
+ doc/en/conf.py | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
 
 diff --git a/doc/en/conf.py b/doc/en/conf.py
-index 48b40ef..8940c77 100644
+index 9558a75..d99e75e 100644
 --- a/doc/en/conf.py
 +++ b/doc/en/conf.py
-@@ -15,7 +15,9 @@
- #
- # The full version, including alpha/beta/rc tags.
- # The short X.Y version.
-+import os
- import shutil
-+import sys
- from textwrap import dedent
- from typing import TYPE_CHECKING
+@@ -119,14 +119,17 @@ autodoc_typehints_description_target = "documented"
+ # -- Options for intersphinx ----------------------------------------------------------
+ # https://www.sphinx-doc.org/en/master/usage/extensions/intersphinx.html#configuration
  
-@@ -433,6 +435,22 @@ intersphinx_mapping = {
-     "setuptools": ("https://setuptools.pypa.io/en/stable", None),
++def use_if_available(path):
++    return path if os.path.isfile(path) else None
++
+ intersphinx_mapping = {
+-    "pluggy": ("https://pluggy.readthedocs.io/en/stable", None),
+-    "python": ("https://docs.python.org/3", None),
+-    "numpy": ("https://numpy.org/doc/stable", None),
++    "pluggy": ("https://pluggy.readthedocs.io/en/stable", use_if_available("/usr/share/doc/python-pluggy/html/objects.inv")),
++    "python": ("https://docs.python.org/3", use_if_available("/usr/share/doc/python3/html/objects.inv")),
++    "numpy": ("https://numpy.org/doc/stable", use_if_available("/usr/share/doc/python-numpy/html/objects.inv")),
+     "pip": ("https://pip.pypa.io/en/stable", None),
+     "tox": ("https://tox.wiki/en/stable", None),
+     "virtualenv": ("https://virtualenv.pypa.io/en/stable", None),
+-    "setuptools": ("https://setuptools.pypa.io/en/stable", None),
++    "setuptools": ("https://setuptools.pypa.io/en/stable", use_if_available("/usr/share/doc/python-setuptools-doc/html/objects.inv")),
      "packaging": ("https://packaging.python.org/en/latest", None),
  }
-+def check_object_path(key, url, path):
-+    if os.path.isfile(path):
-+        return {key: (url, path)}
-+    return {}
-+
-+intersphinx_mapping = {}
-+intersphinx_mapping.update(
-+    check_object_path('python',
-+                      'http://docs.python.org/',
-+                      '/usr/share/doc/python%d.%d/html/objects.inv' % \
-+                       sys.version_info[:2]))
-+# The Debian packaging for pluggy does not yet generate the documentation
-+intersphinx_mapping.update(
-+    check_object_path('pluggy',
-+                      'https://pluggy.readthedocs.io/en/latest',
-+                      '/usr/share/doc/python3-pluggy/html/objects.inv'))
  
- 
- def configure_logging(app: "sphinx.application.Sphinx") -> None:

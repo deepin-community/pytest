@@ -1,4 +1,6 @@
 # mypy: allow-untyped-defs
+from __future__ import annotations
+
 from contextlib import contextmanager
 from decimal import Decimal
 from fractions import Fraction
@@ -6,7 +8,6 @@ from math import sqrt
 import operator
 from operator import eq
 from operator import ne
-from typing import Optional
 
 from _pytest.pytester import Pytester
 from _pytest.python_api import _recursive_sequence_map
@@ -89,12 +90,25 @@ def assert_approx_raises_regex(pytestconfig):
     return do_assert
 
 
-SOME_FLOAT = r"[+-]?([0-9]*[.])?[0-9]+\s*"
+SOME_FLOAT = r"[+-]?((?:([0-9]*[.])?[0-9]+(e-?[0-9]+)?)|inf|nan)\s*"
 SOME_INT = r"[0-9]+\s*"
 
 
 class TestApprox:
     def test_error_messages_native_dtypes(self, assert_approx_raises_regex):
+        # Treat bool exactly.
+        assert_approx_raises_regex(
+            {"a": 1.0, "b": True},
+            {"a": 1.0, "b": False},
+            [
+                "",
+                "  comparison failed. Mismatched elements: 1 / 2:",
+                f"  Max absolute difference: {SOME_FLOAT}",
+                f"  Max relative difference: {SOME_FLOAT}",
+                r"  Index\s+\| Obtained\s+\| Expected",
+                r".*(True|False)\s+",
+            ],
+        )
         assert_approx_raises_regex(
             2.0,
             1.0,
@@ -415,9 +429,7 @@ class TestApprox:
             (-1e100, -1e100),
         ],
     )
-    def test_negative_tolerance(
-        self, rel: Optional[float], abs: Optional[float]
-    ) -> None:
+    def test_negative_tolerance(self, rel: float | None, abs: float | None) -> None:
         # Negative tolerances are not allowed.
         with pytest.raises(ValueError):
             1.1 == approx(1, rel, abs)
@@ -591,6 +603,13 @@ class TestApprox:
             assert approx(x, rel=5e-6, abs=0) == a
             assert approx(x, rel=5e-7, abs=0) != a
 
+    def test_expecting_bool(self) -> None:
+        assert True == approx(True)  # noqa: E712
+        assert False == approx(False)  # noqa: E712
+        assert True != approx(False)  # noqa: E712
+        assert True != approx(False, abs=2)  # noqa: E712
+        assert 1 != approx(True)
+
     def test_list(self):
         actual = [1 + 1e-7, 2 + 1e-8]
         expected = [1, 2]
@@ -656,6 +675,7 @@ class TestApprox:
     def test_dict_nonnumeric(self):
         assert {"a": 1.0, "b": None} == pytest.approx({"a": 1.0, "b": None})
         assert {"a": 1.0, "b": 1} != pytest.approx({"a": 1.0, "b": None})
+        assert {"a": 1.0, "b": True} != pytest.approx({"a": 1.0, "b": False}, abs=2)
 
     def test_dict_vs_other(self):
         assert 1 != approx({"a": 0})
@@ -954,6 +974,43 @@ class TestApprox:
         with pytest.raises(TypeError, match="only supports ordered sequences"):
             assert {1, 2, 3} == approx({1, 2, 3})
 
+    def test_strange_sequence(self):
+        """https://github.com/pytest-dev/pytest/issues/11797"""
+        a = MyVec3(1, 2, 3)
+        b = MyVec3(0, 1, 2)
+
+        # this would trigger the error inside the test
+        pytest.approx(a, abs=0.5)._repr_compare(b)
+
+        assert b == pytest.approx(a, abs=2)
+        assert b != pytest.approx(a, abs=0.5)
+
+
+class MyVec3:  # incomplete
+    """sequence like"""
+
+    _x: int
+    _y: int
+    _z: int
+
+    def __init__(self, x: int, y: int, z: int):
+        self._x, self._y, self._z = x, y, z
+
+    def __repr__(self) -> str:
+        return f"<MyVec3 {self._x} {self._y} {self._z}>"
+
+    def __len__(self) -> int:
+        return 3
+
+    def __getitem__(self, key: int) -> int:
+        if key == 0:
+            return self._x
+        if key == 1:
+            return self._y
+        if key == 2:
+            return self._z
+        raise IndexError(key)
+
 
 class TestRecursiveSequenceMap:
     def test_map_over_scalar(self):
@@ -981,3 +1038,6 @@ class TestRecursiveSequenceMap:
             (5, 8),
             [(7)],
         ]
+
+    def test_map_over_sequence_like(self):
+        assert _recursive_sequence_map(int, MyVec3(1, 2, 3)) == [1, 2, 3]

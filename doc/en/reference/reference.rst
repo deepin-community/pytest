@@ -54,7 +54,7 @@ pytest.fail
 
 **Tutorial**: :ref:`skipping`
 
-.. autofunction:: pytest.fail(reason, [pytrace=True, msg=None])
+.. autofunction:: pytest.fail(reason, [pytrace=True])
 
 .. class:: pytest.fail.Exception
 
@@ -63,7 +63,7 @@ pytest.fail
 pytest.skip
 ~~~~~~~~~~~
 
-.. autofunction:: pytest.skip(reason, [allow_module_level=False, msg=None])
+.. autofunction:: pytest.skip(reason, [allow_module_level=False])
 
 .. class:: pytest.skip.Exception
 
@@ -88,7 +88,7 @@ pytest.xfail
 pytest.exit
 ~~~~~~~~~~~
 
-.. autofunction:: pytest.exit(reason, [returncode=None, msg=None])
+.. autofunction:: pytest.exit(reason, [returncode=None])
 
 .. class:: pytest.exit.Exception
 
@@ -529,13 +529,14 @@ record_testsuite_property
 recwarn
 ~~~~~~~
 
-**Tutorial**: :ref:`assertwarnings`
+**Tutorial**: :ref:`recwarn`
 
 .. autofunction:: _pytest.recwarn.recwarn()
     :no-auto-options:
 
 .. autoclass:: pytest.WarningsRecorder()
     :members:
+    :special-members: __getitem__, __iter__, __len__
 
 
 .. fixture:: request
@@ -650,7 +651,7 @@ Reference to all hooks which can be implemented by :ref:`conftest.py files <loca
 Bootstrapping hooks
 ~~~~~~~~~~~~~~~~~~~
 
-Bootstrapping hooks called for plugins registered early enough (internal and setuptools plugins).
+Bootstrapping hooks called for plugins registered early enough (internal and third-party plugins).
 
 .. hook:: pytest_load_initial_conftests
 .. autofunction:: pytest_load_initial_conftests
@@ -1120,11 +1121,11 @@ Environment variables that can be used to change pytest's behavior.
 
 .. envvar:: CI
 
-When set (regardless of value), pytest acknowledges that is running in a CI process. Alternative to ``BUILD_NUMBER`` variable.
+When set (regardless of value), pytest acknowledges that is running in a CI process. Alternative to ``BUILD_NUMBER`` variable. See also :ref:`ci-pipelines`.
 
 .. envvar:: BUILD_NUMBER
 
-When set (regardless of value), pytest acknowledges that is running in a CI process. Alternative to CI variable.
+When set (regardless of value), pytest acknowledges that is running in a CI process. Alternative to CI variable. See also :ref:`ci-pipelines`.
 
 .. envvar:: PYTEST_ADDOPTS
 
@@ -1145,10 +1146,16 @@ processes can inspect it, see :ref:`pytest current test env` for more informatio
 
 When set, pytest will print tracing and debug information.
 
+.. envvar:: PYTEST_DEBUG_TEMPROOT
+
+Root for temporary directories produced by fixtures like :fixture:`tmp_path`
+as discussed in :ref:`temporary directory location and retention`.
+
 .. envvar:: PYTEST_DISABLE_PLUGIN_AUTOLOAD
 
-When set, disables plugin auto-loading through setuptools entrypoints. Only explicitly specified plugins will be
-loaded.
+When set, disables plugin auto-loading through :std:doc:`entry point packaging
+metadata <packaging:guides/creating-and-discovering-plugins>`. Only explicitly
+specified plugins will be loaded.
 
 .. envvar:: PYTEST_PLUGINS
 
@@ -1286,10 +1293,10 @@ passed multiple times. The expected format is ``name=value``. For example::
 
 .. confval:: cache_dir
 
-   Sets a directory where stores content of cache plugin. Default directory is
+   Sets the directory where the cache plugin's content is stored. Default directory is
    ``.pytest_cache`` which is created in :ref:`rootdir <rootdir>`. Directory may be
    relative or absolute path. If setting relative path, then directory is created
-   relative to :ref:`rootdir <rootdir>`. Additionally path may contain environment
+   relative to :ref:`rootdir <rootdir>`. Additionally, a path may contain environment
    variables, that will be expanded. For more information about cache plugin
    please refer to :ref:`cache_provider`.
 
@@ -1701,13 +1708,13 @@ passed multiple times. The expected format is ``name=value``. For example::
    This would tell ``pytest`` to not look into typical subversion or
    sphinx-build directories or into any ``tmp`` prefixed directory.
 
-   Additionally, ``pytest`` will attempt to intelligently identify and ignore a
-   virtualenv by the presence of an activation script.  Any directory deemed to
-   be the root of a virtual environment will not be considered during test
-   collection unless ``--collect-in-virtualenv`` is given.  Note also that
-   ``norecursedirs`` takes precedence over ``--collect-in-virtualenv``; e.g. if
-   you intend to run tests in a virtualenv with a base directory that matches
-   ``'.*'`` you *must* override ``norecursedirs`` in addition to using the
+   Additionally, ``pytest`` will attempt to intelligently identify and ignore
+   a virtualenv.  Any directory deemed to be the root of a virtual environment
+   will not be considered during test collection unless
+   ``--collect-in-virtualenv`` is given.  Note also that ``norecursedirs``
+   takes precedence over ``--collect-in-virtualenv``; e.g. if you intend to
+   run tests in a virtualenv with a base directory that matches ``'.*'`` you
+   *must* override ``norecursedirs`` in addition to using the
    ``--collect-in-virtualenv`` flag.
 
 
@@ -1865,7 +1872,7 @@ passed multiple times. The expected format is ``name=value``. For example::
    .. code-block:: ini
 
         [pytest]
-        tmp_path_retention_policy = "all"
+        tmp_path_retention_policy = all
 
    Default: ``all``
 
@@ -2001,6 +2008,7 @@ All the command-line flags can be obtained by running ``pytest --help``::
       -v, --verbose         Increase verbosity
       --no-header           Disable header
       --no-summary          Disable summary
+      --no-fold-skipped     Do not fold skipped tests in short summary.
       -q, --quiet           Decrease verbosity
       --verbosity=VERBOSE   Set verbosity. Default: 0.
       -r chars              Show extra test summary info as specified by chars:
@@ -2016,6 +2024,7 @@ All the command-line flags can be obtained by running ``pytest --help``::
                             passed through addopts)
       --tb=style            Traceback print mode
                             (auto/long/short/line/native/no)
+      --xfail-tb            Show tracebacks for xfail (as long as --tb != no)
       --show-capture={no,stdout,stderr,log,all}
                             Controls how captured stdout/stderr/log is shown on
                             failed tests. Default: all.
@@ -2241,6 +2250,8 @@ All the command-line flags can be obtained by running ``pytest --help``::
                             Plugins that must be present for pytest to run
 
     Environment variables:
+      CI                       When set (regardless of value), pytest knows it is running in a CI process and does not truncate summary info
+      BUILD_NUMBER             Equivalent to CI
       PYTEST_ADDOPTS           Extra command line options
       PYTEST_PLUGINS           Comma-separated plugins to load during startup
       PYTEST_DISABLE_PLUGIN_AUTOLOAD Set to disable plugin auto-loading
