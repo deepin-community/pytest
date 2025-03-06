@@ -1,3 +1,35 @@
+pytest (8.3.4-1) unstable; urgency=medium
+
+  * New upstream version 8.3.4
+  * Wrap and sort Debian package files
+  * Remove old Breaks declarations
+
+ -- Timo Röhling <roehling@debian.org>  Wed, 04 Dec 2024 15:51:21 +0100
+
+pytest (8.3.3-1) unstable; urgency=medium
+
+  * New upstream version 8.3.3
+
+ -- Timo Röhling <roehling@debian.org>  Sun, 15 Sep 2024 09:41:58 +0200
+
+pytest (8.3.2-1) unstable; urgency=medium
+
+  * New upstream version 8.3.2
+  * Make the build reproducible.
+    Thanks to Chris Lamb (Closes: #1077485)
+
+ -- Timo Röhling <roehling@debian.org>  Wed, 31 Jul 2024 01:57:33 +0200
+
+pytest (8.3.1-1) unstable; urgency=medium
+
+  * New upstream version 8.3.1
+  * Update patches
+    - Drop backported fix for flaky test plugins
+  * Update build depends
+  * Bump Standards-Version to 4.7.0
+
+ -- Timo Röhling <roehling@debian.org>  Thu, 25 Jul 2024 10:50:25 +0200
+
 pytest (8.2.2-2) unstable; urgency=medium
 
   * Fix test regressions for flaky test plugins.

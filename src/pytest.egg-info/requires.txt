@@ -1,6 +1,6 @@
 iniconfig
 packaging
-pluggy<2.0,>=1.5
+pluggy<2,>=1.5
 
 [:python_version < "3.11"]
 exceptiongroup>=1.0.0rc8
